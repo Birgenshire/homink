@@ -297,3 +297,30 @@ using WiFiPassiveSensor = PassiveSensor<float, esphome::wifi_signal::WiFiSignalS
     ESP_LOGD("main", "%s: Value changed - triggering update", sensor_var.name()); \
     id(data_updated) = true; \
   }
+
+// ============================================================================
+// X-MACRO SYSTEM FOR SENSOR REGISTRY
+// ============================================================================
+// SENSOR_* macros are used in homink.h to define sensors once.
+// They expand to C++ variable declarations.
+// SENSOR_INIT_ALL() is defined in homink.h and expands to set_sensor() calls.
+//
+// ESPHome ID convention: automatically prepends "_" to cpp_var name
+// e.g., SENSOR_DEF(gate1) expands to: cpp_var=gate1, esphome_id=_gate1
+
+// --- SENSOR_* macros: Expand to C++ variable declarations ---
+#define SENSOR_BINARY(var, name, entity)             BinaryStateSensor var(name, entity);
+#define SENSOR_TEXT(var, name, entity)               TextStateSensor var(name, entity);
+#define SENSOR_THRESHOLD(var, name, entity, thresh)  FloatThresholdSensor var(name, entity, thresh);
+#define SENSOR_PASSIVE(var, name, entity)            FloatPassiveSensor var(name, entity);
+#define SENSOR_WIFI(var, name, entity)               WiFiPassiveSensor var(name, entity);
+
+// --- SENSOR_INIT_* macros: Used by SENSOR_INIT_ALL() in homink.h ---
+// Token pasting (##) automatically creates _var from var
+// Extra indirection (_SENSOR_INIT) forces macro expansion before token pasting
+#define _SENSOR_INIT(var)          var.set_sensor(&id(_##var));
+#define SENSOR_INIT_BINARY(var)    _SENSOR_INIT(var)
+#define SENSOR_INIT_TEXT(var)      _SENSOR_INIT(var)
+#define SENSOR_INIT_THRESHOLD(var) _SENSOR_INIT(var)
+#define SENSOR_INIT_PASSIVE(var)   _SENSOR_INIT(var)
+#define SENSOR_INIT_WIFI(var)      _SENSOR_INIT(var)

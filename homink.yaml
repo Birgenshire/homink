@@ -161,22 +161,10 @@ esphome:
             condition:
               lambda: 'return id(_temperature).has_state();'
         - logger.log: "Initial sensor data received: Refreshing display..."
-        # Initialize sensor references
+        # Initialize sensor references (X-macro expands SENSOR_REGISTRY to set_sensor calls)
         - lambda: |-
-            gate1.set_sensor(id(_gate1));
-            gate2.set_sensor(id(_gate2));
-            gate3.set_sensor(id(_gate3));
-            lock.set_sensor(id(_lock));
-            weather.set_sensor(id(_weather));
-            charger.set_sensor(id(_charger));
-            temperature.set_sensor(id(_temperature));
-            solar_power.set_sensor(id(_solar_power));
-            charging_power.set_sensor(id(_charging_power));
-            sun_elev.set_sensor(id(_sun_elev));
-            solar_energy.set_sensor(id(_solar_energy));
-            home_consumption.set_sensor(id(_home_consumption));
-            wifi_rssi.set_sensor(id(wifi_rssi_sensor));
-            
+            SENSOR_INIT_ALL();
+
             // Update all sensors using unified linked list
             ISensor::update_all();
         - lambda: 'id(initial_data_received) = true;'
@@ -636,7 +624,7 @@ sensor:
 
   - platform: wifi_signal
     name: "Homink - WiFi Signal Strength"
-    id: wifi_rssi_sensor
+    id: _wifi_rssi
     unit_of_measurement: "dBm"
     entity_category: "diagnostic"
     update_interval: 60s
