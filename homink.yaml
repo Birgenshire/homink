@@ -1,19 +1,182 @@
-# WEATHERMAN DASHBOARD
+# ═══════════════════════════════════════════════════════════════════════════════
+# WEATHERMAN DASHBOARD - Solar & Gates Edition
+# ═══════════════════════════════════════════════════════════════════════════════
 # For Home Assistant and ESPHome
-# Designed by Madelena Mak 2022 - https://mmak.es
+# 7.5" Waveshare e-Paper Display (800x480 B/W)
+#
+# WHAT THIS DASHBOARD DISPLAYS:
+# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │ WEATHER SECTION                                                             │
+# │  • Current temperature (°F)                                                 │
+# │  • Weather condition with intelligent icon selection:                       │
+# │    - Day/night detection via sun elevation                                  │
+# │    - Sunrise/sunset transitions (golden hour icons)                         │
+# │    - Night-specific icons for cloudy conditions                             │
+# │    - 40+ weather states supported (sunny, cloudy, rainy, snowy, etc.)      │
+# │  • WiFi signal strength indicator (4-level + disconnected)                  │
+# ├─────────────────────────────────────────────────────────────────────────────┤
+# │ ENERGY SECTION                                                              │
+# │  • Solar Output - Real-time solar production (kW)                           │
+# │  • Solar 24hr - Total solar production last 24 hours (kWh)                  │
+# │  • Home 24hr - Total home consumption last 24 hours (kWh)                   │
+# │  • Charging - Tesla Wall Connector status with smart display:              │
+# │    - Actively charging: Shows real power (kW) with power factor correction │
+# │    - Plugged in but not charging: Shows "0.0 kW"                            │
+# │    - Unplugged: Shows "-- kW"                                               │
+# │    - Error states handled gracefully                                        │
+# ├─────────────────────────────────────────────────────────────────────────────┤
+# │ GATES SECTION                                                               │
+# │  • Gate 1 (Sidewalk) - Open/Closed status                                   │
+# │  • Gate 2 (Driveway) - Open/Closed status                                   │
+# │  • Gate 3 (Side) - Open/Closed/Unlocked status with lock detection         │
+# │    - Shows "OPEN" if gate is open (regardless of lock)                      │
+# │    - Shows "UNLOCKED" if gate is closed but unlocked                        │
+# │    - Shows "CLOSED" if gate is closed and locked                            │
+# ├─────────────────────────────────────────────────────────────────────────────┤
+# │ FOOTER                                                                      │
+# │  • Connected: Shows "Refreshed [timestamp]" with seconds precision          │
+# │  • Disconnected: Shows "Last Seen [timestamp]" (30-minute timeout)          │
+# └─────────────────────────────────────────────────────────────────────────────┘
+#
+# INTELLIGENT UPDATE SYSTEM:
+# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │ TWO-LAYER CHANGE DETECTION (Push + Poll)                                   │
+# │                                                                             │
+# │ PUSH UPDATES (Instant):                                                     │
+# │  • Gate opens/closes → Immediate display refresh                            │
+# │  • Lock status changes → Immediate display refresh                          │
+# │  • Charger status changes → Immediate display refresh                       │
+# │  • Weather condition changes → Immediate display refresh                    │
+# │                                                                             │
+# │ THRESHOLD-BASED UPDATES (Reduces Unnecessary Refreshes):                   │
+# │  • Temperature: Updates only when change ≥ 1°F                              │
+# │  • Solar Power: Updates only when change ≥ 0.5 kW                           │
+# │  • Charging Power: Updates only when change ≥ 100W                          │
+# │    (Extends display lifespan by avoiding constant minor updates)            │
+# │                                                                             │
+# │ POLLING BACKUP (Every 15 seconds):                                          │
+# │  • Catches missed push updates (network hiccups, HA slowness)               │
+# │  • Compares polled values vs displayed values                               │
+# │  • Triggers update if mismatch detected                                     │
+# │  • Provides resilience against missed updates                               │
+# │                                                                             │
+# │ FORCED REFRESH (Every 30 minutes):                                          │
+# │  • Ensures display never gets "stuck"                                       │
+# │  • Updates disconnection status in footer                                   │
+# │  • Keeps display content fresh even with no sensor changes                  │
+# └─────────────────────────────────────────────────────────────────────────────┘
+#
+# HOME ASSISTANT CONNECTION MONITORING:
+# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │ CONNECTION TRACKING                                                         │
+# │  • Tracks "Home Assistant" API client separately from other clients         │
+# │  • Updates last_ha_connection_time on every sensor update                   │
+# │  • 30-minute timeout: Marks as disconnected if no sensor updates            │
+# │  • Display shows "Last Seen [timestamp]" when disconnected                  │
+# │  • Automatically reconnects when sensor updates resume                      │
+# └─────────────────────────────────────────────────────────────────────────────┘
+#
+# DISPLAY HARDWARE:
+# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │ Waveshare 7.5" e-Paper V2 (800x480 pixels, Black/White)                    │
+# │  • Refresh time: ~4 seconds typical                                         │
+# │  • Display type: Electrophoretic (bistable - retains image without power)  │
+# │  • Viewing angle: Nearly 180° (paper-like)                                  │
+# │  • Busy pin: Hardware signal with inverted polarity (fixed timing issues)  │
+# │  • Power consumption: <0.01W idle, ~1W during refresh                       │
+# │  • Expected lifespan: Millions of refreshes with proper management          │
+# └─────────────────────────────────────────────────────────────────────────────┘
+#
+# BOOT SEQUENCE:
+# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │ 1. Display "Waiting for Data" screen (~4 seconds)                           │
+# │ 2. Wait for first sensor to arrive from Home Assistant                      │
+# │ 3. Refresh display with real data                                           │
+# │ Total boot time: ~10-15 seconds (no artificial delays)                      │
+# └─────────────────────────────────────────────────────────────────────────────┘
+#
+# MONITORING & DIAGNOSTICS:
+# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │ Published to Home Assistant:                                                │
+# │  • Display Last Update - Timestamp sensor (device_class: timestamp)         │
+# │  • Recorded Display Refresh - Total refresh counter (persists across boots) │
+# │  • WiFi Signal Strength - Signal quality in dBm                             │
+# │  • Manual Refresh Button - Trigger immediate display update                 │
+# │  • Shutdown/Restart Buttons - Device management                             │
+# └─────────────────────────────────────────────────────────────────────────────┘
+#
+# TECHNICAL HIGHLIGHTS:
+# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │ PERFORMANCE OPTIMIZATIONS:                                                  │
+# │  • Substitutions instead of scripts (zero overhead, no queueing)            │
+# │  • Inverted busy pin for proper display timing                              │
+# │  • Smart caching prevents displaying stale data                             │
+# │  • Early returns in threshold checks for efficiency                         │
+# │                                                                             │
+# │ RELIABILITY FEATURES:                                                       │
+# │  • Proper race condition handling in update script                          │
+# │  • Edge case coverage (clock backward, uninitialized timestamps)            │
+# │  • Mismatch detection catches missed push updates                           │
+# │  • Connection timeout detection (30 minutes)                                │
+# │  • Comprehensive logging for debugging                                      │
+# │                                                                             │
+# │ DISPLAY LONGEVITY:                                                          │
+# │  • Threshold-based updates reduce unnecessary refreshes                     │
+# │  • Temperature: Only updates when change ≥ 1°F                              │
+# │  • Solar Power: Only updates when change ≥ 0.5 kW                           │
+# │  • Charging Power: Only updates when change ≥ 100W                          │
+# │  • Significantly fewer refreshes than updating on every poll cycle          │
+# └─────────────────────────────────────────────────────────────────────────────┘
+#
+# CUSTOMIZATION POINTS:
+# ┌─────────────────────────────────────────────────────────────────────────────┐
+# │ Easily adjustable thresholds (search for "threshold_" in globals):         │
+# │  • threshold_temperature_change: 1.0°F (line ~186)                          │
+# │  • threshold_solar_power_change: 0.5 kW (line ~191)                         │
+# │  • threshold_charging_power_change: 100W (line ~196)                        │
+# │  • threshold_forced_refresh_interval: 1800s (30 min) (line ~202)            │
+# │  • tesla_power_factor: 0.789 (installation-specific) (line ~171)            │
+# └─────────────────────────────────────────────────────────────────────────────┘
+# ═══════════════════════════════════════════════════════════════════════════════
 
-# Cue "Blame it on the Weatherman" by B*Witched!
+# Reusable code blocks (inline substitutions like C preprocessor #define macros)
+# WHY SUBSTITUTIONS INSTEAD OF SCRIPTS:
+# - Zero execution overhead (code is inlined at compile time)
+# - No script queuing delays (direct lambda execution)
+# - Faster, more predictable timing (critical for display updates)
+# - Scripts add unnecessary complexity and potential queueing issues
+substitutions:
+  # Code to run whenever ANY sensor data is received from Home Assistant
+  # This accomplishes two things:
+  # 1. Updates last_ha_connection_time to track when we last heard from HA
+  # 2. Marks HA as connected if it was previously disconnected
+  code_sensor_received: |-
+    id(last_ha_connection_time) = id(homeassistant_time).now().timestamp;
+    if (!id(ha_connected)) {
+      ESP_LOGD("main", "Received sensor data - marking HA as connected");
+      id(ha_connected) = true;
+    }
+
+  # Code to trigger a display update with a logged reason
+  # Sets data_updated flag which will be checked by the 15-second polling loop
+  code_trigger_update: |-
+    ESP_LOGD("main", "%s", reason);
+    id(data_updated) = true;
+
 esphome:
   name: "weatherman"
   on_boot:
       priority: 200.0
       then:
+        # BOOT SEQUENCE:
+        # 1. Show "Waiting for Data" screen immediately (blocks for display update ~4 seconds)
+        # 2. Wait for at least one sensor to arrive from HA (usually ready after step 1 completes)
+        # 3. Refresh display with real data
+        # Note: No artificial delays needed - display update provides natural wait time
         - component.update: eink_display
         - wait_until:
             condition:
-              lambda: 'return id(data_updated) == true;'
-              # Wait a bit longer so all the items are received
-        - delay: 5s
+              lambda: 'return id(weather_temperature).has_state();'
         - logger.log: "Initial sensor data received: Refreshing display..."
         - lambda: 'id(initial_data_received) = true;'
         - script.execute: update_screen
@@ -23,15 +186,32 @@ esp32:
   framework:
     type: arduino
 
-
 # Enable logging
 logger:
 
 # Enable Home Assistant API
 api:
+  on_client_connected:
+    - lambda: |-
+        ESP_LOGD("api", "Client %s connected from IP %s", client_info.c_str(), client_address.c_str());
+        // Only track Home Assistant client, ignore others (ESPHome Dashboard, web browsers, etc.)
+        if (client_info == "Home Assistant") {
+          ESP_LOGD("api", "Home Assistant connected");
+          id(ha_connected) = true;
+        }
+  on_client_disconnected:
+    - lambda: |-
+        ESP_LOGD("api", "Client %s disconnected from IP %s", client_info.c_str(), client_address.c_str());
+        // Only track Home Assistant client disconnection
+        if (client_info == "Home Assistant") {
+          ESP_LOGD("api", "Home Assistant disconnected");
+          id(ha_connected) = false;
+          id(last_ha_connection_time) = id(homeassistant_time).now().timestamp;
+        }
+
 
 ota:
-
+  platform: esphome
 
 button:
   - platform: shutdown
@@ -42,101 +222,519 @@ button:
     name: "Weatherman - Refresh Screen"
     entity_category: config
     on_press:
+      - logger.log: "Manual refresh button pressed - updating display immediately"
       - script.execute: update_screen
-      
-      
-# Global variables for detecting if the display needs to be refreshed. (Thanks @paviro!)
+
+# Global variables for display refresh logic and state tracking
 globals:
+  # === DISPLAY UPDATE FLAGS ===
+  # Signals that sensor data has changed enough to warrant a display refresh
   - id: data_updated
     type: bool
     restore_value: no
     initial_value: 'false'
+
+  # Tracks whether initial sensor data has been received (prevents updates before boot completes)
   - id: initial_data_received
     type: bool
     restore_value: no
     initial_value: 'false'
+
+  # Total number of display refreshes since first boot (persisted across reboots)
+  # This is a monotonically increasing counter for tracking display usage
   - id: recorded_display_refresh
     type: int
     restore_value: yes
     initial_value: '0'
 
+  # === CACHED SENSOR VALUES (used for threshold comparisons) ===
+  # We compare new sensor values against these to decide if display needs updating
+  # Using -999.0 as sentinel value to detect first reading
+  - id: last_display_temperature
+    type: float
+    restore_value: yes
+    initial_value: '-999.0'
 
-# Script for updating screen - Refresh display and publish refresh count and time. (Thanks @paviro!)
+  - id: last_display_solar_power
+    type: float
+    restore_value: yes
+    initial_value: '-999.0'
+
+  # Power factor for Tesla Wall Connector (converts apparent power to real power)
+  # 0.789 is the measured power factor for this specific installation
+  # Real power (kW) = Apparent power (W) × power_factor / 1000
+  - id: tesla_power_factor
+    type: float
+    restore_value: no
+    initial_value: '0.789'
+
+  # Unix timestamp of when display was last refreshed
+  # Used for: (1) showing refresh time in footer, (2) forced 30-minute refresh
+  - id: last_display_refresh_time
+    type: long
+    restore_value: yes
+    initial_value: '0'
+
+  # === REFRESH THRESHOLDS ===
+  # These control how sensitive the display is to sensor changes
+  # Larger values = fewer refreshes, longer display life
+  # Smaller values = more responsive display, shorter display life
+  - id: threshold_temperature_change
+    type: float
+    restore_value: no
+    initial_value: '1.0'  # Degrees Fahrenheit
+
+  - id: threshold_solar_power_change
+    type: float
+    restore_value: no
+    initial_value: '0.5'  # Kilowatts
+
+  - id: threshold_charging_power_change
+    type: float
+    restore_value: no
+    initial_value: '100.0'  # Watts
+
+  # Force a refresh at least every 30 minutes even if no sensor changes
+  # This ensures the display doesn't get "stuck" and shows disconnection status
+  - id: threshold_forced_refresh_interval
+    type: int
+    restore_value: no
+    initial_value: '1800'  # Seconds (30 minutes)
+
+  # === LAST DISPLAYED STATES (for mismatch detection) ===
+  # These cache what's currently shown on the display
+  # We compare polled sensor values against these to detect missed push updates
+  - id: last_displayed_gate_1
+    type: bool
+    restore_value: yes
+    initial_value: 'false'
+
+  - id: last_displayed_gate_2
+    type: bool
+    restore_value: yes
+    initial_value: 'false'
+
+  - id: last_displayed_gate_3
+    type: bool
+    restore_value: yes
+    initial_value: 'false'
+
+  - id: last_displayed_lock
+    type: std::string
+    restore_value: yes
+    initial_value: '""'
+
+  - id: last_displayed_weather_condition
+    type: std::string
+    restore_value: yes
+    initial_value: '""'
+
+  - id: last_displayed_charger_status
+    type: std::string
+    restore_value: yes
+    initial_value: '""'
+
+  # === STATE AVAILABILITY TRACKING ===
+  # Track whether each sensor currently has a valid state from HA
+  # This is CRITICAL: Without this, sensors going offline then back online to their
+  # previous value won't trigger updates (e.g., gate offline as "closed", comes back as "closed")
+  # NOTE: restore_value = no because we don't know sensor availability on boot - must wait for HA
+  - id: last_displayed_gate_1_has_state
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  - id: last_displayed_gate_2_has_state
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  - id: last_displayed_gate_3_has_state
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  - id: last_displayed_lock_has_state
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  - id: last_displayed_weather_condition_has_state
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  - id: last_displayed_charger_status_has_state
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  # === HOME ASSISTANT CONNECTION TRACKING ===
+  # Tracks whether HA is currently connected (only tracks "Home Assistant" API client)
+  - id: ha_connected
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+
+  # Unix timestamp of last successful communication with Home Assistant
+  # Used to: (1) detect 30-minute timeout, (2) show "Last Seen" time when disconnected
+  - id: last_ha_connection_time
+    type: long
+    restore_value: yes
+    initial_value: '0'
+
+  # Last displayed charging power (for threshold comparison)
+  # Using -1.0 as sentinel to detect first reading
+  - id: last_display_charging_power
+    type: float
+    restore_value: yes
+    initial_value: '-1.0'
+
+# Display refresh script - executes the complete display update cycle
+# TIMING: Takes ~6 seconds total (2s poll delay + ~4s display update)
+# EXECUTION MODEL: This is a single-threaded cooperative script
+#   - Delays yield control to other tasks (sensor callbacks, polling, etc.)
+#   - Race conditions during delays are acceptable (see comments below)
 script:
   - id: update_screen
     then:
+      # CRITICAL FIRST STEP: Close the race condition window
+      # Set data_updated=false BEFORE polling HA to prevent double-updates
+      # If we poll first, sensors could fire during the delay and set data_updated=true again
+      # This is acceptable - we'll show the newer data, which is correct behavior
       - lambda: 'id(data_updated) = false;'
-      - component.update: eink_display
-      - lambda: 'id(recorded_display_refresh) += 1;'
-      - lambda: 'id(display_last_update).publish_state(id(homeassistant_time).now().timestamp);'
-      
 
-# Check whether the display needs to be refreshed every minute,
-# based on whether new data is received or motion is detected. (Thanks @paviro!)
+      # Poll Home Assistant to get the absolute latest sensor values
+      # This ensures we're not displaying stale data from the last 15-second poll
+      # The update_entity service forces HA to fetch fresh values from integrations
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: "sensor.birgenshire_temp,sensor.openweathermap_condition,sensor.birgenshire_solar_power,sensor.solar_production_last_24h_2,sensor.home_consumption_last_24h_2,sensor.tesla_wall_connector_current_power,sensor.tesla_wall_connector_status,binary_sensor.aqara_door_and_window_sensor_p2_door_2,binary_sensor.aqara_door_and_window_sensor_p2_door_3,binary_sensor.aqara_door_and_window_sensor_p2_door,lock.shed_lock"
+
+      # Wait for HA to poll its integrations and push updated values back to us
+      # During this delay, sensor on_value/on_state callbacks may fire with new data
+      - delay: 2s
+
+      # Capture timestamp RIGHT NOW - this is when we're caching the values to display
+      # CRITICAL: This must happen BEFORE display update, not after
+      # The display update blocks for ~4 seconds, so timestamp must reflect data age, not display age
+      - lambda: |-
+          long refresh_time = id(homeassistant_time).now().timestamp;
+          id(last_display_refresh_time) = refresh_time;
+          id(display_last_update).publish_state(refresh_time);
+
+          // Debug logging: show the exact time we're capturing values
+          char time_str[40];
+          time_t display_time = refresh_time;
+          strftime(time_str, sizeof(time_str), "%b %d, %Y %I:%M:%S %p", localtime(&display_time));
+          ESP_LOGD("main", "Caching display values at: %s (timestamp: %ld)", time_str, refresh_time);
+
+      # Cache all sensor states that we're about to render on the display
+      # These cached values serve two purposes:
+      # 1. Display rendering (in the lambda below)
+      # 2. Mismatch detection (compared against polled values in 15-second loop)
+      # CRITICAL: We must cache BOTH the value AND whether the sensor has state
+      # This prevents missed updates when sensors go offline then come back to same value
+      - lambda: |-
+          // Gate sensors: Cache value AND has_state status
+          // CRITICAL: Capture has_state ONCE to avoid TOCTOU race condition
+          bool gate1_has_state = id(gate_1_status).has_state();
+          id(last_displayed_gate_1_has_state) = gate1_has_state;
+          if (gate1_has_state) {
+            id(last_displayed_gate_1) = id(gate_1_status).state;
+          }
+
+          bool gate2_has_state = id(gate_2_status).has_state();
+          id(last_displayed_gate_2_has_state) = gate2_has_state;
+          if (gate2_has_state) {
+            id(last_displayed_gate_2) = id(gate_2_status).state;
+          }
+
+          bool gate3_has_state = id(gate_3_status).has_state();
+          id(last_displayed_gate_3_has_state) = gate3_has_state;
+          if (gate3_has_state) {
+            id(last_displayed_gate_3) = id(gate_3_status).state;
+          }
+
+          // Lock sensor: Cache value AND has_state status
+          bool lock_has_state = id(gate_3_lock_status).has_state();
+          id(last_displayed_lock_has_state) = lock_has_state;
+          if (lock_has_state) {
+            id(last_displayed_lock) = id(gate_3_lock_status).state;
+          }
+
+          // Weather condition: Cache value AND has_state status
+          bool weather_has_state = id(weather_condition_now).has_state();
+          id(last_displayed_weather_condition_has_state) = weather_has_state;
+          if (weather_has_state) {
+            id(last_displayed_weather_condition) = id(weather_condition_now).state;
+          }
+
+          // Charger status: Cache value AND has_state status
+          bool charger_has_state = id(tesla_wall_connector_status).has_state();
+          id(last_displayed_charger_status_has_state) = charger_has_state;
+          if (charger_has_state) {
+            id(last_displayed_charger_status) = id(tesla_wall_connector_status).state;
+          }
+
+          // Threshold-based sensor values (used for change detection)
+          // These are less critical since they use thresholds and initialize on first reading
+          if (id(weather_temperature).has_state()) id(last_display_temperature) = id(weather_temperature).state;
+          if (id(solar_power_current).has_state()) id(last_display_solar_power) = id(solar_power_current).state;
+          if (id(tesla_charging_power).has_state()) id(last_display_charging_power) = id(tesla_charging_power).state;
+
+      # Trigger display update - THIS BLOCKS for ~4 seconds
+      # The display hardware busy pin holds the driver until refresh completes
+      # Nothing else in this script executes until the display finishes
+      - component.update: eink_display
+
+      # Increment total refresh counter (persisted across reboots)
+      - lambda: 'id(recorded_display_refresh) += 1;'
+
+# Polling loop: Runs every 15 seconds to check for changes
+# PURPOSE: Two-layer change detection system
+#   1. PUSH: Sensors have on_value/on_state callbacks that set data_updated=true immediately
+#   2. POLL: This loop catches any missed push updates (network issues, HA slowness, etc.)
+# WHY BOTH?: Push gives instant updates, poll provides resilience against missed updates
 time:
   - platform: homeassistant
     id: homeassistant_time
     on_time:
-      - seconds: 0
-        minutes: /1
+      - seconds: /15
         then:
+          # Skip polling if an update is already pending (avoids redundant work)
           - if:
               condition:
-                lambda: 'return id(data_updated) == true;'
+                lambda: 'return id(data_updated) == false;'
               then:
+                # Force HA to refresh all our sensors (catches any missed push updates)
+                - homeassistant.service:
+                    service: homeassistant.update_entity
+                    data:
+                      entity_id: "sensor.birgenshire_temp,sensor.openweathermap_condition,sensor.birgenshire_solar_power,sensor.solar_production_last_24h_2,sensor.home_consumption_last_24h_2,sensor.tesla_wall_connector_current_power,sensor.tesla_wall_connector_status,binary_sensor.aqara_door_and_window_sensor_p2_door_2,binary_sensor.aqara_door_and_window_sensor_p2_door_3,binary_sensor.aqara_door_and_window_sensor_p2_door,lock.shed_lock"
+
+                # Wait for HA to poll and send updated values
+                # During this delay, on_state/on_value callbacks will fire if sensors changed
+                - delay: 2s
+
+                # MISMATCH DETECTION: Compare polled values against what's currently displayed
+                # This catches the case where:
+                #   - Push update was missed (network hiccup, HA was busy, etc.)
+                #   - Display is now showing stale data
+                #   - Polled value differs from displayed value
+                # CRITICAL: We also check if has_state changed (sensor went offline or came back online)
+                # Each sensor does early return on mismatch for efficiency
+                - lambda: |-
+                    // Gate 1: Check for state mismatch OR has_state change
+                    bool gate1_has_state = id(gate_1_status).has_state();
+                    if (gate1_has_state != id(last_displayed_gate_1_has_state)) {
+                      const char* reason = gate1_has_state ?
+                        "Gate 1 came back online - triggering update" :
+                        "Gate 1 went offline - triggering update";
+                      ${code_trigger_update}
+                      return;
+                    }
+                    // At this point: gate1_has_state == last_displayed_gate_1_has_state (invariant)
+                    // Check value only if both have state
+                    if (gate1_has_state) {  // Could also use last_displayed_gate_1_has_state (same value)
+                      if (id(gate_1_status).state != id(last_displayed_gate_1)) {
+                        const char* reason = "Gate 1 state mismatch detected - triggering update";
+                        ${code_trigger_update}
+                        return;
+                      }
+                    }
+
+                    // Gate 2: Check for state mismatch OR has_state change
+                    bool gate2_has_state = id(gate_2_status).has_state();
+                    if (gate2_has_state != id(last_displayed_gate_2_has_state)) {
+                      const char* reason = gate2_has_state ?
+                        "Gate 2 came back online - triggering update" :
+                        "Gate 2 went offline - triggering update";
+                      ${code_trigger_update}
+                      return;
+                    }
+                    if (gate2_has_state) {
+                      if (id(gate_2_status).state != id(last_displayed_gate_2)) {
+                        const char* reason = "Gate 2 state mismatch detected - triggering update";
+                        ${code_trigger_update}
+                        return;
+                      }
+                    }
+
+                    // Gate 3: Check for state mismatch OR has_state change
+                    bool gate3_has_state = id(gate_3_status).has_state();
+                    if (gate3_has_state != id(last_displayed_gate_3_has_state)) {
+                      const char* reason = gate3_has_state ?
+                        "Gate 3 came back online - triggering update" :
+                        "Gate 3 went offline - triggering update";
+                      ${code_trigger_update}
+                      return;
+                    }
+                    if (gate3_has_state) {
+                      if (id(gate_3_status).state != id(last_displayed_gate_3)) {
+                        const char* reason = "Gate 3 state mismatch detected - triggering update";
+                        ${code_trigger_update}
+                        return;
+                      }
+                    }
+
+                    // Lock: Check for state mismatch OR has_state change
+                    bool lock_has_state = id(gate_3_lock_status).has_state();
+                    if (lock_has_state != id(last_displayed_lock_has_state)) {
+                      const char* reason = lock_has_state ?
+                        "Lock came back online - triggering update" :
+                        "Lock went offline - triggering update";
+                      ${code_trigger_update}
+                      return;
+                    }
+                    if (lock_has_state) {
+                      if (id(gate_3_lock_status).state != id(last_displayed_lock)) {
+                        const char* reason = "Lock state mismatch detected - triggering update";
+                        ${code_trigger_update}
+                        return;
+                      }
+                    }
+
+                    // Weather condition: Check for state mismatch OR has_state change
+                    bool weather_has_state = id(weather_condition_now).has_state();
+                    if (weather_has_state != id(last_displayed_weather_condition_has_state)) {
+                      const char* reason = weather_has_state ?
+                        "Weather condition came back online - triggering update" :
+                        "Weather condition went offline - triggering update";
+                      ${code_trigger_update}
+                      return;
+                    }
+                    if (weather_has_state) {
+                      if (id(weather_condition_now).state != id(last_displayed_weather_condition)) {
+                        const char* reason = "Weather condition mismatch detected - triggering update";
+                        ${code_trigger_update}
+                        return;
+                      }
+                    }
+
+                    // Charger: Check for state mismatch OR has_state change
+                    bool charger_has_state = id(tesla_wall_connector_status).has_state();
+                    if (charger_has_state != id(last_displayed_charger_status_has_state)) {
+                      const char* reason = charger_has_state ?
+                        "Charger status came back online - triggering update" :
+                        "Charger status went offline - triggering update";
+                      ${code_trigger_update}
+                      return;
+                    }
+                    if (charger_has_state) {
+                      if (id(tesla_wall_connector_status).state != id(last_displayed_charger_status)) {
+                        const char* reason = "Charger status mismatch detected - triggering update";
+                        ${code_trigger_update}
+                        return;
+                      }
+                    }
+
+                # FORCED REFRESH: Only check if no sensor changes were detected above
+                # This ensures we refresh at least every 30 minutes even if nothing changes
+                # Benefits: (1) Shows disconnection status, (2) Prevents display from getting "stuck"
                 - if:
                     condition:
-                      binary_sensor.is_on: motion_detected
+                      lambda: 'return id(data_updated) == false;'
                     then:
-                      - logger.log: "Sensor data updated and activity in home detected: Refreshing display..."
-                      - script.execute: update_screen
-                    else:
-                      - logger.log: "Sensor data updated but no activity in home - skipping display refresh."
-              else:
-                - logger.log: "No sensors updated - skipping display refresh."
+                      - lambda: |-
+                          long current_time = id(homeassistant_time).now().timestamp;
+                          long time_since_last_refresh = current_time - id(last_display_refresh_time);
+                          long time_since_last_ha_update = current_time - id(last_ha_connection_time);
 
+                          // HA CONNECTION TIMEOUT: No sensor updates for 30 minutes
+                          // This is separate from API disconnection - API might be connected but sensors not updating
+                          if (id(last_ha_connection_time) > 0 && time_since_last_ha_update >= 1800) {
+                            if (id(ha_connected)) {
+                              ESP_LOGW("main", "No sensor updates from HA for %ld seconds (30+ minutes) - marking as disconnected", time_since_last_ha_update);
+                              id(ha_connected) = false;
+                              // last_ha_connection_time already reflects when we last heard from HA
+                            }
+                          }
+
+                          // EDGE CASE HANDLING: Protect against uninitialized or invalid timestamps
+                          if (id(last_display_refresh_time) == 0) {
+                            ESP_LOGD("main", "last_display_refresh_time not initialized, skipping forced refresh check");
+                            return;
+                          }
+                          if (time_since_last_refresh < 0) {
+                            // Clock went backward (NTP adjustment, manual time change, etc.)
+                            ESP_LOGW("main", "Negative time difference detected (%ld seconds) - clock went backward! Resetting last_display_refresh_time", time_since_last_refresh);
+                            id(last_display_refresh_time) = current_time;
+                            return;
+                          }
+
+                          // CHECK FORCED REFRESH THRESHOLD (default: 30 minutes)
+                          ESP_LOGD("main", "Checking forced refresh: %ld seconds since last refresh (threshold: %d)",
+                                   time_since_last_refresh, id(threshold_forced_refresh_interval));
+                          if (time_since_last_refresh >= id(threshold_forced_refresh_interval)) {
+                            ESP_LOGD("main", "Forced refresh interval elapsed (%ld >= %d), triggering update",
+                                     time_since_last_refresh, id(threshold_forced_refresh_interval));
+                            id(data_updated) = true;
+                          }
+              else:
+                - logger.log: "Update already pending, skipping polling loop"
+          # Then check if display needs refresh
+          - if:
+              condition:
+                lambda: 'return id(data_updated) == true && id(initial_data_received) == true;'
+              then:
+                - logger.log: "Sensor data updated: Refreshing display..."
+                - script.execute: update_screen
+              else:
+                - logger.log: "No significant changes - skipping display refresh."
 
 # Wifi information
 wifi:
   use_address: 192.168.85.151
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-
-  # Enable fallback hotspot (captive portal) in case wifi connection fails
-  #ap:
-    #ssid: !secret weatherman_ap_ssid
-    #password: !secret weatherman_ap_password
-
+  on_connect:
+    - lambda: |-
+        ESP_LOGD("wifi", "WiFi connected");
+        // Don't automatically set ha_connected = true here
+        // Let the API client connection handle that
+  on_disconnect:
+    - lambda: |-
+        ESP_LOGD("wifi", "WiFi disconnected - marking HA as disconnected");
+        id(ha_connected) = false;
+        id(last_ha_connection_time) = id(homeassistant_time).now().timestamp;
 
 # Include custom fonts
 font:
   - file: 'fonts/GothamRnd-Book.ttf'
     id: font_small_book
     size: 18
+    bpp: 1
   - file: 'fonts/GothamRnd-Bold.ttf'
     id: font_large_bold
-    size: 108
-    glyphs: [' ', '-', '°', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'C']
+    size: 96
+    bpp: 1
+    glyphs: [' ', '-', '°', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', 'F']
   - file: 'fonts/GothamRnd-Bold.ttf'
     id: font_title
-    size: 54
-    glyphs: ['W', 'E', 'A', 'T', 'H', 'R', 'L', 'I', 'N', ' ']
+    size: 44
+    bpp: 1
+    glyphs: ['W', 'E', 'A', 'T', 'H', 'R', 'S', 'O', 'L', 'G', 'N', 'I', 'Y', ' ']
   - file: 'fonts/GothamRnd-Bold.ttf'
     id: font_medium_bold
-    size: 30
-    # glyphs: [' ', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'M', 'I', 'N']
+    size: 32
+    bpp: 1
   - file: 'fonts/GothamRnd-Bold.ttf'
     id: font_small_bold
-    size: 18
-    # glyphs: [' ', '-', '°', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', 'M', 'I', 'N']
+    size: 20
+    bpp: 1
+  - file: 'fonts/GothamRnd-Book.ttf'
+    id: font_name
+    bpp: 1
+    size: 24
 
-
-  # Include Material Design Icons font
-  # Thanks to https://community.home-assistant.io/t/display-materialdesign-icons-on-esphome-attached-to-screen/199790/16
+  # Material Design Icons font
   - file: 'fonts/materialdesignicons-webfont.ttf'
     id: font_mdi_large
-    size: 96
-    glyphs: &mdi-weather-glyphs
+    size: 84
+    bpp: 1
+    glyphs:
       - "\U000F0590" # mdi-weather-cloudy
       - "\U000F0F2F" # mdi-weather-cloudy-alert
       - "\U000F0E6E" # mdi-weather-cloudy-arrow-right
@@ -167,37 +765,131 @@ font:
       - "\U000F0F38" # mdi-weather-tornado
       - "\U000F059D" # mdi-weather-windy
       - "\U000F059E" # mdi-weather-windy-variant
+      - "\U000F0026" # mdi-alert-circle-outline (exceptional)
   - file: 'fonts/materialdesignicons-webfont.ttf'
     id: font_mdi_medium
-    size: 36
-    glyphs: *mdi-weather-glyphs
+    size: 42
+    bpp: 1
+    glyphs:
+      - "\U000F0A72" # mdi-solar-power
+      - "\U000F140C" # mdi-lightning-bolt (total energy)
+      - "\U000F02DC" # mdi-home (house icon)
+      - "\U000F081A" # mdi-door-closed
+      - "\U000F081C" # mdi-door-open
+      - "\U000F033F" # mdi-lock-open-variant (unlocked icon)
+      - "\U000F007D" # mdi-ev-station (charging)
+      - "\U000F0079" # mdi-battery (plugged in, not charging)
+      - "\U000F151C" # mdi-power-plug-off (unplugged)
+      - "\U000F0205" # mdi-help-circle (unknown status)
+  - file: 'fonts/materialdesignicons-webfont.ttf'
+    id: font_mdi_small
+    size: 20
+    bpp: 1
+    glyphs:
+      - "\U000F091F" # mdi-wifi-strength-1
+      - "\U000F0922" # mdi-wifi-strength-2
+      - "\U000F0925" # mdi-wifi-strength-3
+      - "\U000F0928" # mdi-wifi-strength-4
+      - "\U000F092D" # mdi-wifi-strength-off
 
 
-# Include Custom Titles
-# image:
-#   - file: "images/weatherman-title-train.png"
-#     id: title_train
-#     type: BINARY
-#   - file: "images/weatherman-title-weather.png"
-#     id: title_weather
-#     type: BINARY
-
-
-# Check if motion is detected in the living room.
 binary_sensor:
-  - platform: homeassistant
-    entity_id: binary_sensor.weatherman_motion_detected
-    id: motion_detected
+  # === GATE STATUS SENSORS ===
+  # Aqara door/window sensors on three gates
+  # on_state triggers immediately when gate opens/closes (push update from HA)
+  # Each gate sensor does two things:
+  #   1. Updates last_ha_connection_time (via code_sensor_received)
+  #   2. Sets data_updated=true to trigger display refresh (via code_trigger_update)
 
+  - platform: homeassistant
+    entity_id: binary_sensor.aqara_door_and_window_sensor_p2_door_2
+    id: gate_1_status
+    on_state:
+      then:
+        - lambda: |-
+            ${code_sensor_received}
+            const char* reason = "Gate 1 state changed - triggering update";
+            ${code_trigger_update}
+
+  - platform: homeassistant
+    entity_id: binary_sensor.aqara_door_and_window_sensor_p2_door_3
+    id: gate_2_status
+    on_state:
+      then:
+        - lambda: |-
+            ${code_sensor_received}
+            const char* reason = "Gate 2 state changed - triggering update";
+            ${code_trigger_update}
+
+  - platform: homeassistant
+    entity_id: binary_sensor.aqara_door_and_window_sensor_p2_door
+    id: gate_3_status
+    on_state:
+      then:
+        - lambda: |-
+            ${code_sensor_received}
+            const char* reason = "Gate 3 state changed - triggering update";
+            ${code_trigger_update}
+
+text_sensor:
+  # === STRING-BASED SENSORS ===
+  # These must be text_sensor (not sensor) because they return string states like "charging", "locked", etc.
+
+  # Tesla Wall Connector status
+  # Possible values: "charging", "not_connected", "connected", "ready", "charging_finished", etc.
+  - platform: homeassistant
+    entity_id: sensor.tesla_wall_connector_status
+    id: tesla_wall_connector_status
+    on_value:
+      then:
+        - lambda: |-
+            ${code_sensor_received}
+            const char* reason = "Charger status changed - triggering update";
+            ${code_trigger_update}
+
+  # Side gate lock sensor (must be text_sensor since it returns "locked"/"unlocked")
+  - platform: homeassistant
+    entity_id: lock.shed_lock
+    id: gate_3_lock_status
+    on_value:
+      then:
+        - lambda: |-
+            ${code_sensor_received}
+            const char* reason = "Lock status changed - triggering update";
+            ${code_trigger_update}
+
+  # Weather condition (must be text_sensor since it returns string states)
+  - platform: homeassistant
+    entity_id: sensor.openweathermap_condition
+    id: weather_condition_now
+    on_value:
+      then:
+        - lambda: |-
+            ${code_sensor_received}
+            const char* reason = "Weather condition changed - triggering update";
+            ${code_trigger_update}
+
+  # Gate names
+  - platform: template
+    id: gate_1_name
+    lambda: 'return {"Sidewalk"};'
+
+  - platform: template
+    id: gate_2_name
+    lambda: 'return {"Driveway"};'
+
+  - platform: template
+    id: gate_3_name
+    lambda: 'return {"Side"};'
 
 sensor:
-  # Create sensors for monitoring Weatherman remotely.
+  # Display monitoring sensors
   - platform: template
     name: "Weatherman - Display Last Update"
     device_class: timestamp
     entity_category: "diagnostic"
     id: display_last_update
-    
+
   - platform: template
     name: "Weatherman - Recorded Display Refresh"
     accuracy_decimals: 0
@@ -205,7 +897,20 @@ sensor:
     state_class: "total_increasing"
     entity_category: "diagnostic"
     lambda: 'return id(recorded_display_refresh);'
-  
+
+  # Pull 24-hour refresh count from HA and republish it back to HA
+  # This makes the HA-calculated value visible in ESPHome's interface
+  # Why: Allows viewing 24h refresh count directly in ESPHome without opening HA
+  - platform: homeassistant
+    entity_id: sensor.e_ink_refreshes_last_24h
+    id: refreshes_last_24h_ha
+    internal: false  # Republish to HA so it appears in ESPHome
+    name: "Weatherman - Refreshes Last 24h"
+    unit_of_measurement: "Refreshes"
+    accuracy_decimals: 0
+    state_class: "measurement"
+    entity_category: "diagnostic"
+
   - platform: wifi_signal
     name: "Weatherman - WiFi Signal Strength"
     id: wifisignal
@@ -213,207 +918,114 @@ sensor:
     entity_category: "diagnostic"
     update_interval: 60s
 
-  # Call Subway and Weather sensors from HA.
+  # Sun elevation for day/night detection
   - platform: homeassistant
-    entity_id: sensor.gtfs_mta_subway_manhattan 
-    id: train_manhattan_due_in
+    entity_id: sun.sun
+    attribute: elevation
+    id: sun_elevation
     on_value:
       then:
-        - lambda: 'id(data_updated) = true;'
+        - lambda: '${code_sensor_received}'
 
-  - platform: homeassistant
-    entity_id: sensor.gtfs_mta_subway_canarsie
-    id: train_canarsie_due_in
-    on_value:
-      then:
-        - lambda: 'id(data_updated) = true;'
-    
-  - platform: homeassistant
-    entity_id: sensor.gtfs_mta_subway_manhattan
-    attribute: Next bus due in
-    id: train_manhattan_next_train_due_in
-    on_value:
-      then:
-        - lambda: 'id(data_updated) = true;'
-    
-  - platform: homeassistant
-    entity_id: sensor.gtfs_mta_subway_canarsie
-    attribute: Next bus due in
-    id: train_canarsie_next_train_due_in
-    on_value:
-      then:
-        - lambda: 'id(data_updated) = true;'
+  # === THRESHOLD-BASED SENSORS ===
+  # These sensors use thresholds to reduce unnecessary display refreshes
+  # Display only updates when value changes by more than the threshold
+  # Benefits: Longer display life, fewer unnecessary refreshes
+  # Note: Threshold is checked BEFORE triggering update (sentinel value -999.0 for first reading)
 
+  # Temperature sensor: Updates display when temp changes by ≥1°F
   - platform: homeassistant
-    entity_id: weather.hourly
-    attribute: temperature
+    entity_id: sensor.birgenshire_temp
     id: weather_temperature
     on_value:
       then:
-        - lambda: 'id(data_updated) = true;'
+        - lambda: |-
+            ${code_sensor_received}
+            // Skip threshold check if update already pending (avoids redundant checks)
+            if (id(data_updated)) {
+              return;
+            }
+            // First reading: Initialize baseline without triggering update
+            if (id(last_display_temperature) == -999.0) {
+              id(last_display_temperature) = x;
+              ESP_LOGD("main", "Initialized temperature baseline: %.1f", x);
+              return;
+            }
+            // Check if change exceeds threshold
+            float temp_change = abs(x - id(last_display_temperature));
+            if (temp_change >= id(threshold_temperature_change)) {
+              char reason[64];
+              snprintf(reason, sizeof(reason), "Temperature changed by %.1f degrees - triggering update", temp_change);
+              ${code_trigger_update}
+            }
+
+  # === SOLAR/ENERGY SENSORS ===
+  # Solar power: Updates display when power changes by ≥0.5 kW
+  - platform: homeassistant
+    entity_id: sensor.birgenshire_solar_power
+    id: solar_power_current
+    on_value:
+      then:
+        - lambda: |-
+            ${code_sensor_received}
+            // Skip threshold check if update already pending
+            if (id(data_updated)) {
+              return;
+            }
+            // First reading: Initialize baseline
+            if (id(last_display_solar_power) == -999.0) {
+              id(last_display_solar_power) = x;
+              ESP_LOGD("main", "Initialized solar power baseline: %.2f", x);
+              return;
+            }
+            // Check if change exceeds threshold
+            float solar_change = abs(x - id(last_display_solar_power));
+            if (solar_change >= id(threshold_solar_power_change)) {
+              char reason[64];
+              snprintf(reason, sizeof(reason), "Solar power changed by %.2f kW - triggering update", solar_change);
+              ${code_trigger_update}
+            }
+
+  # Charging power: Updates display when power changes by ≥100W
+  - platform: homeassistant
+    entity_id: sensor.tesla_wall_connector_current_power
+    id: tesla_charging_power
+    on_value:
+      then:
+        - lambda: |-
+            ${code_sensor_received}
+            // Skip threshold check if update already pending
+            if (id(data_updated)) {
+              return;
+            }
+            // Only trigger update if charging power changes significantly
+            if (id(last_display_charging_power) == -1.0) {
+              id(last_display_charging_power) = x;
+              ESP_LOGD("main", "Initialized charging power baseline: %.0f", x);
+              return;
+            }
+            float power_change = abs(x - id(last_display_charging_power));
+            if (power_change >= id(threshold_charging_power_change)) {
+              char reason[64];
+              snprintf(reason, sizeof(reason), "Charging power changed by %.0f W - triggering update", power_change);
+              ${code_trigger_update}
+            }
 
   - platform: homeassistant
-    entity_id: sensor.weatherman_data
-    attribute: weather_temperature_0
-    id: weather_temperature_0
+    entity_id: sensor.solar_production_last_24h_2
+    id: solar_energy_today
     on_value:
       then:
-        - lambda: 'id(data_updated) = true;'
+        - lambda: '${code_sensor_received}'
 
   - platform: homeassistant
-    entity_id: sensor.weatherman_data
-    attribute: weather_temperature_1
-    id: weather_temperature_1
+    entity_id: sensor.home_consumption_last_24h_2
+    id: home_consumption_today
     on_value:
       then:
-        - lambda: 'id(data_updated) = true;'
-
-  - platform: homeassistant
-    entity_id: sensor.weatherman_data
-    attribute: weather_temperature_2
-    id: weather_temperature_2
-    on_value:
-      then:
-        - lambda: 'id(data_updated) = true;'
-
-  - platform: homeassistant
-    entity_id: sensor.weatherman_data
-    attribute: weather_temperature_3
-    id: weather_temperature_3
-    on_value:
-      then:
-        - lambda: 'id(data_updated) = true;'
-
-
-text_sensor:
-  - platform: homeassistant
-    entity_id: sensor.gtfs_mta_subway_manhattan
-    attribute: Due at
-    id: train_manhattan_due_at
-    on_value:
-      then:
-        - lambda: 'id(data_updated) = true;'
-  
-  - platform: homeassistant
-    entity_id: sensor.gtfs_mta_subway_canarsie
-    attribute: Due at
-    id: train_canarsie_due_at
-    on_value:
-      then:
-        - lambda: 'id(data_updated) = true;'
-  
-  - platform: homeassistant
-    entity_id: sensor.gtfs_mta_subway_manhattan
-    attribute: Next bus
-    id: train_manhattan_next_train_due_at
-    on_value:
-      then:
-        - lambda: 'id(data_updated) = true;'
-  
-  - platform: homeassistant
-    entity_id: sensor.gtfs_mta_subway_canarsie
-    attribute: Next bus
-    id: train_canarsie_next_train_due_at
-    on_value:
-      then:
-        - lambda: 'id(data_updated) = true;'
-
-  - platform: homeassistant
-    entity_id: weather.valhalla_hourly
-    id: weather_state
-    on_value:
-      then:
-        - lambda: 'id(data_updated) = true;'
-
-  - platform: homeassistant
-    entity_id: sensor.weatherman_data
-    attribute: weather_condition_now
-    id: weather_condition_now
-    on_value:
-      then:
-        - lambda: 'id(data_updated) = true;'
-  - platform: homeassistant
-    entity_id: sensor.weatherman_data
-    attribute: weather_condition_0
-    id: weather_condition_0
-    on_value:
-      then:
-        - lambda: 'id(data_updated) = true;'
-  - platform: homeassistant
-    entity_id: sensor.weatherman_data
-    attribute: weather_timestamp_0
-    id: weather_timestamp_0
-    on_value:
-      then:
-        - lambda: 'id(data_updated) = true;'
-  - platform: homeassistant
-    entity_id: sensor.weatherman_data
-    attribute: weather_condition_1
-    id: weather_condition_1
-    on_value:
-      then:
-        - lambda: 'id(data_updated) = true;'
-  - platform: homeassistant
-    entity_id: sensor.weatherman_data
-    attribute: weather_timestamp_1
-    id: weather_timestamp_1
-    on_value:
-      then:
-        - lambda: 'id(data_updated) = true;'
-  - platform: homeassistant
-    entity_id: sensor.weatherman_data
-    attribute: weather_condition_2
-    id: weather_condition_2
-    on_value:
-      then:
-        - lambda: 'id(data_updated) = true;'
-  - platform: homeassistant
-    entity_id: sensor.weatherman_data
-    attribute: weather_timestamp_2
-    id: weather_timestamp_2
-    on_value:
-      then:
-        - lambda: 'id(data_updated) = true;'
-  - platform: homeassistant
-    entity_id: sensor.weatherman_data
-    attribute: weather_condition_3
-    id: weather_condition_3
-    on_value:
-      then:
-        - lambda: 'id(data_updated) = true;'
-  - platform: homeassistant
-    entity_id: sensor.weatherman_data
-    attribute: weather_timestamp_3
-    id: weather_timestamp_3
-    on_value:
-      then:
-        - lambda: 'id(data_updated) = true;'
-
-  - platform: homeassistant
-    entity_id: sensor.weatherman_data
-    attribute: train_status
-    id: train_status
-    on_value:
-      then:
-        - lambda: 'id(data_updated) = true;'
-  - platform: homeassistant
-    entity_id: sensor.weatherman_data
-    attribute: train_status_manhattan
-    id: train_status_manhattan
-    on_value:
-      then:
-        - lambda: 'id(data_updated) = true;'
-  - platform: homeassistant
-    entity_id: sensor.weatherman_data
-    attribute: train_status_canarsie
-    id: train_status_canarsie
-    on_value:
-      then:
-        - lambda: 'id(data_updated) = true;'
-
+        - lambda: '${code_sensor_received}'
 
 # Define colors
-# This design is white on black so this is necessary.
 color:
   - id: color_bg
     red: 0%
@@ -426,32 +1038,67 @@ color:
     blue: 0%
     white: 100%
 
-
 # Pins for Waveshare ePaper ESP Board
 spi:
   clk_pin: GPIO13
   mosi_pin: GPIO14
 
-
-# Now render everything on the ePaper screen.
+# Display configuration
+# === E-INK DISPLAY CONFIGURATION ===
+# Waveshare 7.5" e-Paper display (800x480 pixels, B/W)
+# Model: 7.50inv2 (V2 variant)
+# Update time: ~4 seconds typical (busy pin inverted polarity fixed timing issues)
+# Busy pin behavior: Hardware pin that signals when display refresh is complete
 display:
   - platform: waveshare_epaper
     id: eink_display
-    cs_pin: GPIO15
-    dc_pin: GPIO27
-    busy_pin: GPIO25
-    reset_pin: GPIO26
-    reset_duration: 2ms
-    model: 7.50inV2
-    update_interval: never
-    rotation: 90°
+    cs_pin: GPIO15        # SPI Chip Select
+    dc_pin: GPIO27        # Data/Command select
+    busy_pin:             # Hardware busy signal (HIGH during refresh)
+      number: GPIO25
+      inverted: true      # Inverted polarity: display pulls pin HIGH when ready
+    reset_pin: GPIO26     # Hardware reset
+    reset_duration: 10ms  # Hold reset for 10ms during initialization
+    model: 7.50inv2       # Waveshare 7.5" V2 model
+    update_interval: never  # Manual updates only (via script)
+    rotation: 90°         # Landscape orientation
     lambda: |-
-      // Map weather states to MDI characters.
+      // === DISPLAY RENDERING LAMBDA ===
+      // This lambda is called by component.update and renders the display content
+      // All rendering uses cached values (last_displayed_*) for consistency
+
+      // Helper function to determine if it's nighttime using sun elevation
+      // Sun is below horizon when elevation < 0
+      auto is_nighttime = []() -> bool {
+        if (id(sun_elevation).has_state()) {
+          return id(sun_elevation).state < -6.0;  // Civil twilight threshold
+        }
+        // Fallback to time-based if sun sensor unavailable (8 PM to 6 AM)
+        auto time = id(homeassistant_time).now();
+        int hour = time.hour;
+        return (hour >= 20 || hour < 6);
+      };
+
+      // Helper function to check if it's sunset/sunrise time (golden hour/twilight)
+      // We use sun elevation between -6° and +6° for both sunrise and sunset
+      auto is_sunset = []() -> bool {
+        if (id(sun_elevation).has_state()) {
+          float elev = id(sun_elevation).state;
+          // Twilight: sun is near horizon (golden hour for both sunrise and sunset)
+          return (elev >= -6.0 && elev <= 6.0);
+        }
+        return false;
+      };
+
+      // Map weather states to MDI characters
       std::map<std::string, std::string> weather_icon_map
         {
+          {"clear", "\U000F0599"},
+          {"clear-night", "\U000F0594"},
           {"cloudy", "\U000F0590"},
           {"cloudy-alert", "\U000F0F2F"},
           {"cloudy-arrow-right", "\U000F0E6E"},
+          {"exceptional", "\U000F0026"},
           {"fog", "\U000F0591"},
           {"hail", "\U000F0592"},
           {"hazy", "\U000F0F30"},
@@ -461,6 +1108,7 @@ display:
           {"night", "\U000F0594"},
           {"night-partly-cloudy", "\U000F0F31"},
           {"partlycloudy", "\U000F0595"},
+          {"partly-cloudy", "\U000F0595"},
           {"partly-lightning", "\U000F0F32"},
           {"partly-rainy", "\U000F0F33"},
           {"partly-snowy", "\U000F0F34"},
@@ -477,69 +1125,283 @@ display:
           {"sunset-down", "\U000F059B"},
           {"sunset-up", "\U000F059C"},
           {"tornado", "\U000F0F38"},
+          {"wind", "\U000F059D"},
           {"windy", "\U000F059D"},
           {"windy-variant", "\U000F059E"},
+          // Add some common OpenWeatherMap alternatives
+          {"clearsky", "\U000F0599"},
+          {"clear_day", "\U000F0599"},
+          {"clear_night", "\U000F0594"},
+          {"few_clouds", "\U000F0595"},
+          {"scattered_clouds", "\U000F0595"},
+          {"broken_clouds", "\U000F0590"},
+          {"shower_rain", "\U000F0597"},
+          {"rain", "\U000F0597"},
+          {"thunderstorm", "\U000F0593"},
+          {"snow", "\U000F0598"},
+          {"mist", "\U000F0591"},
+          // Additional OpenWeatherMap main categories
+          {"drizzle", "\U000F0597"},
+          {"smoke", "\U000F0591"},
+          {"haze", "\U000F0F30"},
+          {"dust", "\U000F0F30"},
+          {"sand", "\U000F0F30"},
+          {"ash", "\U000F0591"},
+          {"squall", "\U000F059D"},
         };
 
-      // Fill background.
-      // it.fill(color_bg);
-
-      // Show loading screen before data is received.
+      // Show loading screen before data is received
       if (id(initial_data_received) == false) {
         it.printf(240, 390, id(font_small_bold), color_text, TextAlign::TOP_CENTER, "WAITING FOR DATA...");
       } else {
 
-        // Weather Section
-        // it.image(0, 88, id(title_weather)); 
-        it.printf(240, 84, id(font_title), color_text, TextAlign::TOP_CENTER, "WEATHER");
+        // =====================================================================
+        // 5.5-inch guide lines (commented out - used during development)
+        // =====================================================================
+        // These lines marked the visible area for a 5.5" mat opening
+        // Display spec: 0.205mm dot pitch = 123.9 DPI
+        // 5.5 inches = 681.45 pixels ≈ 681 pixels
+        // Center with margins: (800 - 681) / 2 = 59.5px ≈ 60px top, 60px bottom
+        // Top line at 60px, bottom at 741px (60 + 681 = 741)
+        // Uncomment these lines if you need to see the mat boundaries:
+        // it.line(0, 60, 480, 60, color_text);
+        // it.line(0, 741, 480, 741, color_text);
 
-        it.printf(100, 158, id(font_mdi_large), color_text, TextAlign::TOP_CENTER, "%s", weather_icon_map[id(weather_condition_now).state.c_str()].c_str());
+        // =====================================================================
+        // WEATHER SECTION (Top)
+        // =====================================================================
+        it.printf(240, 85, id(font_title), color_text, TextAlign::TOP_CENTER, "WEATHER");
 
-        it.printf(300, 158, id(font_large_bold), color_text, TextAlign::TOP_CENTER, "%2.0f°C", id(weather_temperature).state);
+        // WiFi signal strength indicator (upper right corner - within visible frame area)
+        // Visible area is ~436x686 pixels (3.5" x 5.5" with mat)
+        // Position in upper right: X=448 (7px from right edge), Y=70 (10px from top edge)
+        std::string wifi_icon;
+        if (id(wifisignal).has_state()) {
+          float rssi = id(wifisignal).state;
 
-        it.printf(105, 282, id(font_small_book), color_text, TextAlign::TOP_CENTER, "%s", id(weather_timestamp_0).state.c_str());
-        it.printf(105, 306, id(font_mdi_medium), color_text, TextAlign::TOP_CENTER, "%s", weather_icon_map[id(weather_condition_0).state.c_str()].c_str());
-        it.printf(105, 354, id(font_small_bold), color_text, TextAlign::TOP_CENTER, "%2.0f°C", id(weather_temperature_0).state);
+          // Determine WiFi icon based on signal strength (dBm)
+          // Excellent: > -50 dBm (4 bars)
+          // Good: -50 to -60 dBm (3 bars)
+          // Fair: -60 to -70 dBm (2 bars)
+          // Weak: < -70 dBm (1 bar)
+          if (rssi > -50) {
+            wifi_icon = "\U000F0928"; // wifi-strength-4
+          } else if (rssi > -60) {
+            wifi_icon = "\U000F0925"; // wifi-strength-3
+          } else if (rssi > -70) {
+            wifi_icon = "\U000F0922"; // wifi-strength-2
+          } else {
+            wifi_icon = "\U000F091F"; // wifi-strength-1
+          }
+        } else {
+          // No WiFi connection
+          wifi_icon = "\U000F092D"; // wifi-strength-off
+        }
 
-        it.printf(195, 282, id(font_small_book), color_text, TextAlign::TOP_CENTER, "%s", id(weather_timestamp_1).state.c_str());
-        it.printf(195, 306, id(font_mdi_medium), color_text, TextAlign::TOP_CENTER, "%s", weather_icon_map[id(weather_condition_1).state.c_str()].c_str());
-        it.printf(195, 354, id(font_small_bold), color_text, TextAlign::TOP_CENTER, "%2.0f°C", id(weather_temperature_1).state);
+        // Use smaller MDI font for WiFi icon (20px)
+        it.printf(448, 70, id(font_mdi_small), color_text, TextAlign::TOP_RIGHT, "%s", wifi_icon.c_str());
 
-        it.printf(285, 282, id(font_small_book), color_text, TextAlign::TOP_CENTER, "%s", id(weather_timestamp_2).state.c_str());
-        it.printf(285, 306, id(font_mdi_medium), color_text, TextAlign::TOP_CENTER, "%s", weather_icon_map[id(weather_condition_2).state.c_str()].c_str());
-        it.printf(285, 354, id(font_small_bold), color_text, TextAlign::TOP_CENTER, "%2.0f°C", id(weather_temperature_2).state);
+        // Current weather icon - use cached condition value
+        if (id(last_displayed_weather_condition) != "") {
+          std::string condition = id(last_displayed_weather_condition).c_str();
+          std::string icon_to_use;
 
-        it.printf(375, 282, id(font_small_book), color_text, TextAlign::TOP_CENTER, "%s", id(weather_timestamp_3).state.c_str());
-        it.printf(375, 306, id(font_mdi_medium), color_text, TextAlign::TOP_CENTER, "%s", weather_icon_map[id(weather_condition_3).state.c_str()].c_str());
-        it.printf(375, 354, id(font_small_bold), color_text, TextAlign::TOP_CENTER, "%2.0f°C", id(weather_temperature_3).state);
+          // Check if we have a direct match
+          if (weather_icon_map.count(condition) > 0) {
+            icon_to_use = weather_icon_map[condition];
+          } else {
+            // Unknown condition - show alert icon
+            icon_to_use = "\U000F0026";
+          }
 
-        // Train Service Section
-        // it.image(0, 420, id(title_train)); 
-        it.printf(240, 408, id(font_title), color_text, TextAlign::TOP_CENTER, "L TRAIN");
+          // Apply sunrise/sunset/night logic for clear conditions
+          if (condition == "clear" || condition == "clearsky" || condition == "sunny" ||
+              condition == "clear_day" || condition == "clear_night") {
+            // During sunrise/sunset (golden hour), show sunset icon
+            if (is_sunset()) {
+              icon_to_use = "\U000F059A"; // weather-sunset
+            }
+            // At night, show moon icon
+            else if (is_nighttime()) {
+              icon_to_use = "\U000F0594"; // weather-night
+            }
+            // Otherwise use default sunny icon (already set)
+          }
+          // Apply day/night logic for partly cloudy conditions
+          else if (is_nighttime() &&
+                   (condition == "partlycloudy" || condition == "partly-cloudy" ||
+                    condition == "few_clouds" || condition == "scattered_clouds" ||
+                    condition == "broken_clouds")) {
+            icon_to_use = "\U000F0F31"; // weather-night-partly-cloudy
+          }
 
-        it.printf(240, 472, id(font_medium_bold), color_text, TextAlign::TOP_CENTER, "%s", id(train_status).state.c_str());
+          it.printf(100, 140, id(font_mdi_large), color_text, TextAlign::TOP_CENTER, "%s", icon_to_use.c_str());
+        } else {
+          // No condition available - show alert icon
+          it.printf(100, 140, id(font_mdi_large), color_text, TextAlign::TOP_CENTER, "\U000F0026");
+        }
 
-        it.print(150, 524, id(font_small_bold), color_text, TextAlign::TOP_CENTER, "TO MANHATTAN");
-        it.printf(150, 546, id(font_small_book), color_text, TextAlign::TOP_CENTER, "%s", id(train_status_manhattan).state.c_str());
-        it.print(330, 524, id(font_small_bold), color_text, TextAlign::TOP_CENTER, "TO CANARSIE");
-        it.printf(330, 546, id(font_small_book), color_text, TextAlign::TOP_CENTER, "%s", id(train_status_canarsie).state.c_str());
+        // Current temperature - use cached value
+        if (id(last_display_temperature) != -999.0) {
+          if (id(last_display_temperature) >= 100 || id(last_display_temperature) <= -10) {
+            it.printf(300, 140, id(font_large_bold), color_text, TextAlign::TOP_CENTER, "%.0f°F", id(last_display_temperature));
+          } else {
+            it.printf(300, 140, id(font_large_bold), color_text, TextAlign::TOP_CENTER, "%2.0f°F", id(last_display_temperature));
+          }
+        } else {
+          it.printf(300, 140, id(font_large_bold), color_text, TextAlign::TOP_CENTER, "--°F");
+        }
 
-        it.printf(150, 584, id(font_medium_bold), color_text, TextAlign::TOP_CENTER, "%2.0f MIN", id(train_manhattan_due_in).state);
-        it.printf(330, 584, id(font_medium_bold), color_text, TextAlign::TOP_CENTER, "%2.0f MIN", id(train_canarsie_due_in).state);
-        it.printf(150, 616, id(font_small_book), color_text, TextAlign::TOP_CENTER, "%s", id(train_manhattan_due_at).state.c_str());
-        it.printf(330, 616, id(font_small_book), color_text, TextAlign::TOP_CENTER, "%s", id(train_manhattan_due_at).state.c_str());
+        // Draw separator line
+        it.line(40, 250, 440, 250, color_text);
 
-        it.printf(150, 652, id(font_medium_bold), color_text, TextAlign::TOP_CENTER, "%2.0f MIN", id(train_manhattan_next_train_due_in).state);
-        it.printf(330, 652, id(font_medium_bold), color_text, TextAlign::TOP_CENTER, "%2.0f MIN", id(train_canarsie_next_train_due_in).state);
-        it.printf(150, 684, id(font_small_book), color_text, TextAlign::TOP_CENTER, "%s", id(train_manhattan_next_train_due_at).state.c_str());
-        it.printf(330, 684, id(font_small_book), color_text, TextAlign::TOP_CENTER, "%s", id(train_canarsie_next_train_due_at).state.c_str());
+        // =====================================================================
+        // ENERGY SECTION (Middle)
+        // =====================================================================
+        it.printf(240, 268, id(font_title), color_text, TextAlign::TOP_CENTER, "ENERGY");
 
-        // Refresh Timestamp
-        // Code by EnsconcE from https://community.home-assistant.io/t/esphome-show-time/348903
-        char str[17];
-        time_t currTime = id(homeassistant_time).now().timestamp;
-        strftime(str, sizeof(str), "%H:%M", localtime(&currTime));
-        it.printf(240, 710, id(font_small_book), color_text, TextAlign::TOP_CENTER, "REFRESHED AT %s", str);
+        // Solar Output - use cached value
+        it.printf(60, 339, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F0A72");
+        it.printf(120, 342, id(font_name), color_text, TextAlign::CENTER_LEFT, "Solar Output");
+        if (id(last_display_solar_power) != -999.0) {
+          float current_solar = id(last_display_solar_power) < 0 ? 0.0 : id(last_display_solar_power);
+          it.printf(420, 342, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "%.1f kW", current_solar);
+        } else {
+          it.printf(420, 342, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "-- kW");
+        }
+
+        // Solar Production Last 24 Hours
+        it.printf(60, 382, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F140C");
+        it.printf(120, 385, id(font_name), color_text, TextAlign::CENTER_LEFT, "Solar 24hr");
+        if (id(solar_energy_today).has_state()) {
+          it.printf(420, 385, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "%.0f kWh", id(solar_energy_today).state);
+        } else {
+          it.printf(420, 385, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "-- kWh");
+        }
+
+        // Home Consumption Last 24 Hours
+        it.printf(60, 425, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F02DC");
+        it.printf(120, 428, id(font_name), color_text, TextAlign::CENTER_LEFT, "Home 24hr");
+        if (id(home_consumption_today).has_state()) {
+          it.printf(420, 428, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "%.0f kWh", id(home_consumption_today).state);
+        } else {
+          it.printf(420, 428, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "-- kWh");
+        }
+
+        // Car Charging - use cached status and power
+        if (id(last_displayed_charger_status) != "" && id(last_displayed_charger_status) != "unavailable") {
+          std::string status = id(last_displayed_charger_status);
+          if (status == "charging" || status == "charging_reduced") {
+            // Actively charging - show actual power with power factor applied
+            it.printf(60, 468, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F007D");
+            if (id(last_display_charging_power) != -1.0) {
+              float real_power_kw = (id(last_display_charging_power) * id(tesla_power_factor)) / 1000.0;
+              it.printf(420, 471, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "%.1f kW", real_power_kw);
+            } else {
+              it.printf(420, 471, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "Active");
+            }
+          } else if (status == "not_connected" || status == "booting") {
+            // Unplugged or booting
+            it.printf(60, 468, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F151C");
+            it.printf(420, 471, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "-- kW");
+          } else if (status == "error") {
+            // Error state - show X
+            it.printf(60, 468, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "X");
+            it.printf(420, 471, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "X");
+          } else {
+            // Plugged in but not charging (connected, ready, negotiating, charging_finished, waiting_car)
+            it.printf(60, 468, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F0079");
+            it.printf(420, 471, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "0.0 kW");
+          }
+        } else {
+          // No data or unavailable - treat as unplugged
+          it.printf(60, 468, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F151C");
+          it.printf(420, 471, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "-- kW");
+        }
+        it.printf(120, 471, id(font_name), color_text, TextAlign::CENTER_LEFT, "Charging");
+
+        // Draw separator line
+        it.line(40, 503, 440, 503, color_text);
+
+        // =====================================================================
+        // GATE STATUS SECTION (Bottom)
+        // =====================================================================
+        it.printf(240, 521, id(font_title), color_text, TextAlign::TOP_CENTER, "GATES");
+
+        // Gate 1 - use cached has_state flag (not live has_state)
+        // This ensures display shows what we actually cached, not what's current
+        if (id(last_displayed_gate_1_has_state)) {
+          it.printf(60, 592, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT,
+            id(last_displayed_gate_1) ? "\U000F081C" : "\U000F081A");
+          it.printf(420, 595, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT,
+            id(last_displayed_gate_1) ? "OPEN" : "CLOSED");
+        } else {
+          it.printf(60, 592, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F0205");
+          it.printf(420, 595, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "UNKNOWN");
+        }
+        it.printf(120, 595, id(font_name), color_text, TextAlign::CENTER_LEFT, "%s", id(gate_1_name).state.c_str());
+
+        // Gate 2 - use cached has_state flag
+        if (id(last_displayed_gate_2_has_state)) {
+          it.printf(60, 640, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT,
+            id(last_displayed_gate_2) ? "\U000F081C" : "\U000F081A");
+          it.printf(420, 643, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT,
+            id(last_displayed_gate_2) ? "OPEN" : "CLOSED");
+        } else {
+          it.printf(60, 640, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F0205");
+          it.printf(420, 643, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "UNKNOWN");
+        }
+        it.printf(120, 643, id(font_name), color_text, TextAlign::CENTER_LEFT, "%s", id(gate_2_name).state.c_str());
+
+        // Gate 3 - Side gate with lock detection - use cached has_state flags
+        if (id(last_displayed_gate_3_has_state) && id(last_displayed_lock_has_state)) {
+          if (id(last_displayed_gate_3)) {
+            // Gate is open - show open door icon
+            it.printf(60, 688, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F081C");
+            it.printf(420, 691, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "OPEN");
+          } else {
+            // Gate is closed - check lock status
+            if (id(last_displayed_lock) == "unlocked") {
+              // Closed and unlocked
+              it.printf(60, 688, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F033F");
+              it.printf(420, 691, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "UNLOCKED");
+            } else {
+              // Closed and locked
+              it.printf(60, 688, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F081A");
+              it.printf(420, 691, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "CLOSED");
+            }
+          }
+        } else {
+          // Either gate sensor or lock sensor unavailable
+          it.printf(60, 688, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F0205");
+          it.printf(420, 691, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "UNKNOWN");
+        }
+        it.printf(120, 691, id(font_name), color_text, TextAlign::CENTER_LEFT, "%s", id(gate_3_name).state.c_str());
+
+        // =====================================================================
+        // FOOTER - Refreshed/Last Seen Timestamp
+        // =====================================================================
+        char str[40];
+        time_t displayTime;
+
+        if (id(ha_connected)) {
+          // Connected - show when display was last refreshed
+          displayTime = id(last_display_refresh_time);
+          if (displayTime > 0) {
+            strftime(str, sizeof(str), "%b %d, %Y %I:%M:%S %p", localtime(&displayTime));
+            it.printf(240, 721, id(font_small_book), color_text, TextAlign::TOP_CENTER, "Refreshed %s", str);
+          } else {
+            // First boot, no refresh yet
+            it.printf(240, 721, id(font_small_book), color_text, TextAlign::TOP_CENTER, "Initializing...");
+          }
+        } else {
+          // Disconnected - show last connection time
+          displayTime = id(last_ha_connection_time);
+          if (displayTime > 0) {
+            strftime(str, sizeof(str), "%b %d, %Y %I:%M:%S %p", localtime(&displayTime));
+            it.printf(240, 721, id(font_small_book), color_text, TextAlign::TOP_CENTER, "Last Seen %s", str);
+          } else {
+            it.printf(240, 721, id(font_small_book), color_text, TextAlign::TOP_CENTER, "No Connection");
+          }
+        }
       }
-
-captive_portal:
