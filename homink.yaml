@@ -921,19 +921,16 @@ display:
         it.printf(420, 428, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "-- kWh");
       }
 
-      // Car Charging - use cached status and power from structures
-      if (charger.has_state() && charger.value() != "unavailable") {
+      // Car Charging - prioritize power reading for charging detection
+      // If power > 100W, consider it charging regardless of status (handles "unavailable" glitches)
+      if (charging_power.has_state() && charging_power.value() > 100.0) {
+        // Actively charging - show actual power with power factor applied
+        it.printf(60, 468, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F007D");
+        float real_power_kw = (charging_power.value() * id(tesla_power_factor)) / 1000.0;
+        it.printf(420, 471, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "%.1f kW", real_power_kw);
+      } else if (charger.has_state() && charger.value() != "unavailable") {
         std::string status = charger.value();
-        if (status == "charging" || status == "charging_reduced") {
-          // Actively charging - show actual power with power factor applied
-          it.printf(60, 468, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F007D");
-          if (charging_power.has_state()) {
-            float real_power_kw = (charging_power.value() * id(tesla_power_factor)) / 1000.0;
-            it.printf(420, 471, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "%.1f kW", real_power_kw);
-          } else {
-            it.printf(420, 471, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "Active");
-          }
-        } else if (status == "not_connected" || status == "booting") {
+        if (status == "not_connected" || status == "booting") {
           // Unplugged or booting
           it.printf(60, 468, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F151C");
           it.printf(420, 471, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "-- kW");

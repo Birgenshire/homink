@@ -43,7 +43,7 @@ SENSOR_BINARY(S_GATE3, "Side", "binary_sensor.aqara_door_and_window_sensor_p2_do
 // Text Sensors (Status strings)
 SENSOR_TEXT(S_LOCK, "Lock", "lock.shed_lock")
 SENSOR_TEXT(S_WEATHER, "Weather", "sensor.openweathermap_condition")
-SENSOR_TEXT(S_CHARGER, "Charger", "sensor.tesla_wall_connector_status")
+SENSOR_TEXT_FILTERED(S_CHARGER, "Charger", "sensor.tesla_wall_connector_status", "unavailable")
 
 // Threshold Sensors (Numeric with change thresholds)
 SENSOR_THRESHOLD(S_TEMPERATURE, "Temperature", "sensor.birgenshire_temp", 1.0)
@@ -68,7 +68,7 @@ SENSOR_WIFI(S_WIFI_RSSI, "WiFi Signal", "wifisignal")
   SENSOR_INIT_BINARY(S_GATE3) \
   SENSOR_INIT_TEXT(S_LOCK) \
   SENSOR_INIT_TEXT(S_WEATHER) \
-  SENSOR_INIT_TEXT(S_CHARGER) \
+  SENSOR_INIT_TEXT_FILTERED(S_CHARGER) \
   SENSOR_INIT_THRESHOLD(S_TEMPERATURE) \
   SENSOR_INIT_THRESHOLD(S_SOLAR_POWER) \
   SENSOR_INIT_THRESHOLD(S_CHARGING_POWER) \

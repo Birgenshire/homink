@@ -281,6 +281,43 @@ using FloatPassiveSensor = PassiveSensor<float, esphome::homeassistant::Homeassi
 using WiFiPassiveSensor = PassiveSensor<float, esphome::wifi_signal::WiFiSignalSensor>;
 
 // ============================================================================
+// FilteredTextStateSensor - Text sensor that ignores specific state values
+// ============================================================================
+// Use for sensors where certain states (like "unavailable") shouldn't trigger updates
+class FilteredTextStateSensor : public BaseSensor<std::string, esphome::homeassistant::HomeassistantTextSensor> {
+public:
+  FilteredTextStateSensor(const char *n, const char *entity, const char *ignored_value)
+    : BaseSensor<std::string, esphome::homeassistant::HomeassistantTextSensor>(n, entity, ""),
+      _ignored_value(ignored_value) {}
+
+protected:
+  // Override: Ignore transitions to/from the filtered value
+  // Base class guarantees _sensor exists and has state when this is called
+  bool is_value_change_significant() override {
+    std::string current = _get_sensor()->state;
+    std::string cached = _get_value();
+
+    // Transitioning TO ignored value - not significant
+    if (current == _ignored_value) {
+      ESP_LOGD("main", "%s: Ignoring transition to '%s'", name(), _ignored_value);
+      return false;
+    }
+
+    // Transitioning FROM ignored value - not significant
+    if (cached == _ignored_value) {
+      ESP_LOGD("main", "%s: Ignoring transition from '%s'", name(), _ignored_value);
+      return false;
+    }
+
+    // Normal state change between non-ignored values
+    return current != cached;
+  }
+
+private:
+  const char *_ignored_value;
+};
+
+// ============================================================================
 // MACROS
 // ============================================================================
 
@@ -311,6 +348,7 @@ using WiFiPassiveSensor = PassiveSensor<float, esphome::wifi_signal::WiFiSignalS
 // --- SENSOR_* macros: Expand to C++ variable declarations ---
 #define SENSOR_BINARY(var, name, entity)             BinaryStateSensor var(name, entity);
 #define SENSOR_TEXT(var, name, entity)               TextStateSensor var(name, entity);
+#define SENSOR_TEXT_FILTERED(var, name, entity, ignored) FilteredTextStateSensor var(name, entity, ignored);
 #define SENSOR_THRESHOLD(var, name, entity, thresh)  FloatThresholdSensor var(name, entity, thresh);
 #define SENSOR_PASSIVE(var, name, entity)            FloatPassiveSensor var(name, entity);
 #define SENSOR_WIFI(var, name, entity)               WiFiPassiveSensor var(name, entity);
@@ -318,9 +356,10 @@ using WiFiPassiveSensor = PassiveSensor<float, esphome::wifi_signal::WiFiSignalS
 // --- SENSOR_INIT_* macros: Used by SENSOR_INIT_ALL() in homink.h ---
 // Token pasting (##) automatically creates _var from var
 // Extra indirection (_SENSOR_INIT) forces macro expansion before token pasting
-#define _SENSOR_INIT(var)          var.set_sensor(&id(_##var));
-#define SENSOR_INIT_BINARY(var)    _SENSOR_INIT(var)
-#define SENSOR_INIT_TEXT(var)      _SENSOR_INIT(var)
-#define SENSOR_INIT_THRESHOLD(var) _SENSOR_INIT(var)
-#define SENSOR_INIT_PASSIVE(var)   _SENSOR_INIT(var)
-#define SENSOR_INIT_WIFI(var)      _SENSOR_INIT(var)
+#define _SENSOR_INIT(var)             var.set_sensor(&id(_##var));
+#define SENSOR_INIT_BINARY(var)       _SENSOR_INIT(var)
+#define SENSOR_INIT_TEXT(var)         _SENSOR_INIT(var)
+#define SENSOR_INIT_TEXT_FILTERED(var) _SENSOR_INIT(var)
+#define SENSOR_INIT_THRESHOLD(var)    _SENSOR_INIT(var)
+#define SENSOR_INIT_PASSIVE(var)      _SENSOR_INIT(var)
+#define SENSOR_INIT_WIFI(var)         _SENSOR_INIT(var)
