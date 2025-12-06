@@ -1,0 +1,25 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# HOMINK-SLIDER - Device-Specific Configuration
+# ═══════════════════════════════════════════════════════════════════════════════
+# This file contains only slider-specific configuration.
+# All shared configuration is in homink-common.yaml (included via packages).
+
+# Device-specific substitutions
+substitutions:
+  device_name: "Homink Slider"
+  device_ip: "192.168.85.185"
+
+# Include common configuration
+packages:
+  common: !include homink-common.yaml
+
+# Device-specific ESPHome configuration
+esphome:
+  name: "homink-slider"
+  includes:
+    - homink_sensor.h
+    - homink-slider.h
+
+# Device-specific WiFi configuration
+wifi:
+  use_address: ${device_ip}

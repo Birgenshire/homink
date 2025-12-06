@@ -1,0 +1,25 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# HOMINK-ENTRANCE - Device-Specific Configuration
+# ═══════════════════════════════════════════════════════════════════════════════
+# This file contains only entrance-specific configuration.
+# All shared configuration is in homink-common.yaml (included via packages).
+
+# Device-specific substitutions
+substitutions:
+  device_name: "Homink Entrance"
+  device_ip: "192.168.85.151"
+
+# Include common configuration
+packages:
+  common: !include homink-common.yaml
+
+# Device-specific ESPHome configuration
+esphome:
+  name: "homink-entrance"
+  includes:
+    - homink_sensor.h
+    - homink-entrance.h
+
+# Device-specific WiFi configuration
+wifi:
+  use_address: ${device_ip}

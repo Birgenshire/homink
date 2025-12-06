@@ -1,10 +1,9 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# HOMINK DASHBOARD - Solar & Gates Edition
+# HOMINK COMMON CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════════
-# For Home Assistant and ESPHome
-# 7.5" Waveshare e-Paper Display (800x480 B/W)
-#
-# SINGLE SOURCE OF TRUTH: See esphome.project section for SENSORS definition
+# Shared configuration for all Homink e-ink dashboard devices.
+# Device-specific files (homink-entrance.yaml, homink-slider.yaml) include this
+# and provide substitutions for device-specific values.
 #
 # WHAT THIS DASHBOARD DISPLAYS:
 # ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -88,66 +87,9 @@
 # │  • Power consumption: <0.01W idle, ~1W during refresh                       │
 # │  • Expected lifespan: Millions of refreshes with proper management          │
 # └─────────────────────────────────────────────────────────────────────────────┘
-#
-# BOOT SEQUENCE:
-# ┌─────────────────────────────────────────────────────────────────────────────┐
-# │ 1. Display "Waiting for Data" screen (~4 seconds)                           │
-# │ 2. Wait for first sensor to arrive from Home Assistant                      │
-# │ 3. Refresh display with real data                                           │
-# │ Total boot time: ~10-15 seconds (no artificial delays)                      │
-# └─────────────────────────────────────────────────────────────────────────────┘
-#
-# MONITORING & DIAGNOSTICS:
-# ┌─────────────────────────────────────────────────────────────────────────────┐
-# │ Published to Home Assistant:                                                │
-# │  • Display Last Update - Timestamp sensor (device_class: timestamp)         │
-# │  • Recorded Display Refresh - Total refresh counter (persists across boots) │
-# │  • WiFi Signal Strength - Signal quality in dBm                             │
-# │  • Manual Refresh Button - Trigger immediate display update                 │
-# │  • Shutdown/Restart Buttons - Device management                             │
-# └─────────────────────────────────────────────────────────────────────────────┘
-#
-# TECHNICAL HIGHLIGHTS:
-# ┌─────────────────────────────────────────────────────────────────────────────┐
-# │ PERFORMANCE OPTIMIZATIONS:                                                  │
-# │  • Substitutions instead of scripts (zero overhead, no queueing)            │
-# │  • Inverted busy pin for proper display timing                              │
-# │  • Smart caching prevents displaying stale data                             │
-# │  • Early returns in threshold checks for efficiency                         │
-# │                                                                             │
-# │ RELIABILITY FEATURES:                                                       │
-# │  • Proper race condition handling in update script                          │
-# │  • Edge case coverage (clock backward, uninitialized timestamps)            │
-# │  • Mismatch detection catches missed push updates                           │
-# │  • Connection timeout detection (30 minutes)                                │
-# │  • Comprehensive logging for debugging                                      │
-# │                                                                             │
-# │ DISPLAY LONGEVITY:                                                          │
-# │  • Threshold-based updates reduce unnecessary refreshes                     │
-# │  • Temperature: Only updates when change ≥ 1°F                              │
-# │  • Solar Power: Only updates when change ≥ 0.5 kW                           │
-# │  • Charging Power: Only updates when change ≥ 100W                          │
-# │  • Significantly fewer refreshes than updating on every poll cycle          │
-# └─────────────────────────────────────────────────────────────────────────────┘
-#
-# CUSTOMIZATION POINTS:
-# ┌─────────────────────────────────────────────────────────────────────────────┐
-# │ Easily adjustable thresholds in sensor structure definitions:               │
-# │  • Temperature threshold: 1.0°F (line ~263 in ThresholdSensorState)         │
-# │  • Solar power threshold: 0.5 kW (line ~266 in ThresholdSensorState)        │
-# │  • Charging power threshold: 100W (line ~269 in ThresholdSensorState)       │
-# │  • Forced refresh interval: 1800s (30 min) (line ~319)                      │
-# │  • Tesla power factor: 0.789 (installation-specific) (line ~276)            │
-# └─────────────────────────────────────────────────────────────────────────────┘
 # ═══════════════════════════════════════════════════════════════════════════════
 
 esphome:
-  name: "homink"
-  
-  includes:
-    - homink_sensor.h
-    - homink.h
-  
   on_boot:
       priority: 200.0
       then:
@@ -158,9 +100,6 @@ esphome:
         - lambda: 'SENSOR_INIT_ALL();'
         - logger.log: "Boot complete, triggering initial display update..."
         - script.execute: update_screen
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# AUTO-GENERATE HOMINK.H
 
 esp32:
   board: esp32dev
@@ -190,17 +129,16 @@ api:
           id(last_ha_connection_time) = id(homeassistant_time).now().timestamp;
         }
 
-
 ota:
   platform: esphome
 
 button:
   - platform: shutdown
-    name: "Homink - Shutdown"
+    name: "${device_name} - Shutdown"
   - platform: restart
-    name: "Homink - Restart"
+    name: "${device_name} - Restart"
   - platform: template
-    name: "Homink - Refresh Screen"
+    name: "${device_name} - Refresh Screen"
     entity_category: config
     on_press:
       - logger.log: "Manual refresh button pressed - updating display immediately"
@@ -223,15 +161,15 @@ globals:
     initial_value: '0'
 
   # === SENSOR STATE STRUCTURES ===
-  # NOTE: These are defined as C++ global variables in homink.h
+  # NOTE: These are defined as C++ global variables in device-specific .h files
   # ESPHome's globals system doesn't support custom struct types, so we define them
   # directly in C++ in the included header file. They're accessible everywhere as:
   #   gate1, gate2, gate3 (BinarySensorState)
   #   lock, weather, charger (TextSensorState)
   #   temperature, solar_power, charging_power (ThresholdSensorState)
-  # 
+  #
   # The generic struct definitions are in homink_sensor.h (reusable)
-  # The project-specific variables are in homink.h (this project only)
+  # The project-specific variables are in device-specific .h files
 
   # Power factor for Tesla Wall Connector (converts apparent power to real power)
   # 0.789 is the measured power factor for this specific installation
@@ -417,7 +355,6 @@ time:
 
 # Wifi information
 wifi:
-  use_address: 192.168.85.151
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   on_connect:
@@ -528,21 +465,21 @@ binary_sensor:
   # ═══════════════════════════════════════════════════════════════════════════════
   # BINARY SENSORS - Gate sensors
   # ═══════════════════════════════════════════════════════════════════════════════
-  
+
   - platform: homeassistant
     entity_id: "binary_sensor.aqara_door_and_window_sensor_p2_door_2"
     id: _gate1
     on_state:
       then:
         - lambda: 'SENSOR_UPDATE_CALLBACK(gate1)'
-  
+
   - platform: homeassistant
     entity_id: "binary_sensor.aqara_door_and_window_sensor_p2_door_3"
     id: _gate2
     on_state:
       then:
         - lambda: 'SENSOR_UPDATE_CALLBACK(gate2)'
-  
+
   - platform: homeassistant
     entity_id: "binary_sensor.aqara_door_and_window_sensor_p2_door"
     id: _gate3
@@ -554,21 +491,21 @@ text_sensor:
   # ═══════════════════════════════════════════════════════════════════════════════
   # TEXT SENSORS - Status sensors
   # ═══════════════════════════════════════════════════════════════════════════════
-  
+
   - platform: homeassistant
     entity_id: "lock.shed_lock"
     id: _lock
     on_value:
       then:
         - lambda: 'SENSOR_UPDATE_CALLBACK(lock)'
-  
+
   - platform: homeassistant
     entity_id: "sensor.openweathermap_condition"
     id: _weather
     on_value:
       then:
         - lambda: 'SENSOR_UPDATE_CALLBACK(weather)'
-  
+
   - platform: homeassistant
     entity_id: "sensor.tesla_wall_connector_status"
     id: _charger
@@ -578,17 +515,17 @@ text_sensor:
 
 sensor:
   # ═══════════════════════════════════════════════════════════════════════════════
-  # DISPLAY MONITORING SENSORS (NOT AUTO-GENERATED)
+  # DISPLAY MONITORING SENSORS
   # ═══════════════════════════════════════════════════════════════════════════════
-  
+
   - platform: template
-    name: "Homink - Display Last Update"
+    name: "${device_name} - Display Last Update"
     device_class: timestamp
     entity_category: "diagnostic"
     id: display_last_update
 
   - platform: template
-    name: "Homink - Recorded Display Refresh"
+    name: "${device_name} - Recorded Display Refresh"
     accuracy_decimals: 0
     unit_of_measurement: "Refreshes"
     state_class: "total_increasing"
@@ -599,14 +536,14 @@ sensor:
     entity_id: sensor.e_ink_refreshes_last_24h
     id: refreshes_last_24h_ha
     internal: false
-    name: "Homink - Refreshes Last 24h"
+    name: "${device_name} - Refreshes Last 24h"
     unit_of_measurement: "Refreshes"
     accuracy_decimals: 0
     state_class: "measurement"
     entity_category: "diagnostic"
 
   - platform: wifi_signal
-    name: "Homink - WiFi Signal Strength"
+    name: "${device_name} - WiFi Signal Strength"
     id: _wifi_rssi
     unit_of_measurement: "dBm"
     entity_category: "diagnostic"
@@ -615,32 +552,32 @@ sensor:
   # ═══════════════════════════════════════════════════════════════════════════════
   # THRESHOLD SENSORS - Numeric sensors with change thresholds
   # ═══════════════════════════════════════════════════════════════════════════════
-  
+
   - platform: homeassistant
     entity_id: "sensor.birgenshire_temp"
     id: _temperature
     on_value:
       then:
         - lambda: 'SENSOR_UPDATE_CALLBACK(temperature)'
-  
+
   - platform: homeassistant
     entity_id: "sensor.birgenshire_solar_power"
     id: _solar_power
     on_value:
       then:
         - lambda: 'SENSOR_UPDATE_CALLBACK(solar_power)'
-  
+
   - platform: homeassistant
     entity_id: "sensor.tesla_wall_connector_current_power"
     id: _charging_power
     on_value:
       then:
         - lambda: 'SENSOR_UPDATE_CALLBACK(charging_power)'
-  
+
   # ═══════════════════════════════════════════════════════════════════════════════
   # PASSIVE SENSORS - Track HA connection but never trigger display updates
   # ═══════════════════════════════════════════════════════════════════════════════
-  
+
   - platform: homeassistant
     entity_id: "sun.sun"
     attribute: elevation
@@ -648,14 +585,14 @@ sensor:
     on_value:
       then:
         - lambda: 'SENSOR_UPDATE_CALLBACK(sun_elev)'
-  
+
   - platform: homeassistant
     entity_id: "sensor.solar_production_last_24h_2"
     id: _solar_energy
     on_value:
       then:
         - lambda: 'SENSOR_UPDATE_CALLBACK(solar_energy)'
-  
+
   - platform: homeassistant
     entity_id: "sensor.home_consumption_last_24h_2"
     id: _home_consumption
@@ -787,18 +724,6 @@ display:
           {"ash", "\U000F0591"},
           {"squall", "\U000F059D"},
         };
-
-      // =====================================================================
-      // 5.5-inch guide lines (commented out - used during development)
-      // =====================================================================
-      // These lines marked the visible area for a 5.5" mat opening
-      // Display spec: 0.205mm dot pitch = 123.9 DPI
-      // 5.5 inches = 681.45 pixels ≈ 681 pixels
-      // Center with margins: (800 - 681) / 2 = 59.5px ≈ 60px top, 60px bottom
-      // Top line at 60px, bottom at 741px (60 + 681 = 741)
-      // Uncomment these lines if you need to see the mat boundaries:
-      // it.line(0, 60, 480, 60, color_text);
-      // it.line(0, 741, 480, 741, color_text);
 
       // =====================================================================
       // WEATHER SECTION (Top)
