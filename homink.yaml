@@ -1,8 +1,10 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# WEATHERMAN DASHBOARD - Solar & Gates Edition
+# HOMINK DASHBOARD - Solar & Gates Edition
 # ═══════════════════════════════════════════════════════════════════════════════
 # For Home Assistant and ESPHome
 # 7.5" Waveshare e-Paper Display (800x480 B/W)
+#
+# SINGLE SOURCE OF TRUTH: See esphome.project section for SENSORS definition
 #
 # WHAT THIS DASHBOARD DISPLAYS:
 # ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -130,41 +132,22 @@
 #
 # CUSTOMIZATION POINTS:
 # ┌─────────────────────────────────────────────────────────────────────────────┐
-# │ Easily adjustable thresholds (search for "threshold_" in globals):         │
-# │  • threshold_temperature_change: 1.0°F (line ~186)                          │
-# │  • threshold_solar_power_change: 0.5 kW (line ~191)                         │
-# │  • threshold_charging_power_change: 100W (line ~196)                        │
-# │  • threshold_forced_refresh_interval: 1800s (30 min) (line ~202)            │
-# │  • tesla_power_factor: 0.789 (installation-specific) (line ~171)            │
+# │ Easily adjustable thresholds in sensor structure definitions:               │
+# │  • Temperature threshold: 1.0°F (line ~263 in ThresholdSensorState)         │
+# │  • Solar power threshold: 0.5 kW (line ~266 in ThresholdSensorState)        │
+# │  • Charging power threshold: 100W (line ~269 in ThresholdSensorState)       │
+# │  • Forced refresh interval: 1800s (30 min) (line ~319)                      │
+# │  • Tesla power factor: 0.789 (installation-specific) (line ~276)            │
 # └─────────────────────────────────────────────────────────────────────────────┘
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Reusable code blocks (inline substitutions like C preprocessor #define macros)
-# WHY SUBSTITUTIONS INSTEAD OF SCRIPTS:
-# - Zero execution overhead (code is inlined at compile time)
-# - No script queuing delays (direct lambda execution)
-# - Faster, more predictable timing (critical for display updates)
-# - Scripts add unnecessary complexity and potential queueing issues
-substitutions:
-  # Code to run whenever ANY sensor data is received from Home Assistant
-  # This accomplishes two things:
-  # 1. Updates last_ha_connection_time to track when we last heard from HA
-  # 2. Marks HA as connected if it was previously disconnected
-  code_sensor_received: |-
-    id(last_ha_connection_time) = id(homeassistant_time).now().timestamp;
-    if (!id(ha_connected)) {
-      ESP_LOGD("main", "Received sensor data - marking HA as connected");
-      id(ha_connected) = true;
-    }
-
-  # Code to trigger a display update with a logged reason
-  # Sets data_updated flag which will be checked by the 15-second polling loop
-  code_trigger_update: |-
-    ESP_LOGD("main", "%s", reason);
-    id(data_updated) = true;
-
 esphome:
-  name: "weatherman"
+  name: "homink"
+  
+  includes:
+    - homink_sensor.h
+    - homink.h
+  
   on_boot:
       priority: 200.0
       then:
@@ -176,10 +159,31 @@ esphome:
         - component.update: eink_display
         - wait_until:
             condition:
-              lambda: 'return id(weather_temperature).has_state();'
+              lambda: 'return id(_temperature).has_state();'
         - logger.log: "Initial sensor data received: Refreshing display..."
+        # Initialize sensor references
+        - lambda: |-
+            gate1.set_sensor(id(_gate1));
+            gate2.set_sensor(id(_gate2));
+            gate3.set_sensor(id(_gate3));
+            lock.set_sensor(id(_lock));
+            weather.set_sensor(id(_weather));
+            charger.set_sensor(id(_charger));
+            temperature.set_sensor(id(_temperature));
+            solar_power.set_sensor(id(_solar_power));
+            charging_power.set_sensor(id(_charging_power));
+            sun_elev.set_sensor(id(_sun_elev));
+            solar_energy.set_sensor(id(_solar_energy));
+            home_consumption.set_sensor(id(_home_consumption));
+            wifi_rssi.set_sensor(id(wifi_rssi_sensor));
+            
+            // Update all sensors using unified linked list
+            ISensor::update_all();
         - lambda: 'id(initial_data_received) = true;'
         - script.execute: update_screen
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AUTO-GENERATE HOMINK.H
 
 esp32:
   board: esp32dev
@@ -215,11 +219,11 @@ ota:
 
 button:
   - platform: shutdown
-    name: "Weatherman - Shutdown"
+    name: "Homink - Shutdown"
   - platform: restart
-    name: "Weatherman - Restart"
+    name: "Homink - Restart"
   - platform: template
-    name: "Weatherman - Refresh Screen"
+    name: "Homink - Refresh Screen"
     entity_category: config
     on_press:
       - logger.log: "Manual refresh button pressed - updating display immediately"
@@ -247,18 +251,16 @@ globals:
     restore_value: yes
     initial_value: '0'
 
-  # === CACHED SENSOR VALUES (used for threshold comparisons) ===
-  # We compare new sensor values against these to decide if display needs updating
-  # Using -999.0 as sentinel value to detect first reading
-  - id: last_display_temperature
-    type: float
-    restore_value: yes
-    initial_value: '-999.0'
-
-  - id: last_display_solar_power
-    type: float
-    restore_value: yes
-    initial_value: '-999.0'
+  # === SENSOR STATE STRUCTURES ===
+  # NOTE: These are defined as C++ global variables in homink.h
+  # ESPHome's globals system doesn't support custom struct types, so we define them
+  # directly in C++ in the included header file. They're accessible everywhere as:
+  #   gate1, gate2, gate3 (BinarySensorState)
+  #   lock, weather, charger (TextSensorState)
+  #   temperature, solar_power, charging_power (ThresholdSensorState)
+  # 
+  # The generic struct definitions are in homink_sensor.h (reusable)
+  # The project-specific variables are in homink.h (this project only)
 
   # Power factor for Tesla Wall Connector (converts apparent power to real power)
   # 0.789 is the measured power factor for this specific installation
@@ -275,99 +277,12 @@ globals:
     restore_value: yes
     initial_value: '0'
 
-  # === REFRESH THRESHOLDS ===
-  # These control how sensitive the display is to sensor changes
-  # Larger values = fewer refreshes, longer display life
-  # Smaller values = more responsive display, shorter display life
-  - id: threshold_temperature_change
-    type: float
-    restore_value: no
-    initial_value: '1.0'  # Degrees Fahrenheit
-
-  - id: threshold_solar_power_change
-    type: float
-    restore_value: no
-    initial_value: '0.5'  # Kilowatts
-
-  - id: threshold_charging_power_change
-    type: float
-    restore_value: no
-    initial_value: '100.0'  # Watts
-
   # Force a refresh at least every 30 minutes even if no sensor changes
   # This ensures the display doesn't get "stuck" and shows disconnection status
   - id: threshold_forced_refresh_interval
     type: int
     restore_value: no
     initial_value: '1800'  # Seconds (30 minutes)
-
-  # === LAST DISPLAYED STATES (for mismatch detection) ===
-  # These cache what's currently shown on the display
-  # We compare polled sensor values against these to detect missed push updates
-  - id: last_displayed_gate_1
-    type: bool
-    restore_value: yes
-    initial_value: 'false'
-
-  - id: last_displayed_gate_2
-    type: bool
-    restore_value: yes
-    initial_value: 'false'
-
-  - id: last_displayed_gate_3
-    type: bool
-    restore_value: yes
-    initial_value: 'false'
-
-  - id: last_displayed_lock
-    type: std::string
-    restore_value: yes
-    initial_value: '""'
-
-  - id: last_displayed_weather_condition
-    type: std::string
-    restore_value: yes
-    initial_value: '""'
-
-  - id: last_displayed_charger_status
-    type: std::string
-    restore_value: yes
-    initial_value: '""'
-
-  # === STATE AVAILABILITY TRACKING ===
-  # Track whether each sensor currently has a valid state from HA
-  # This is CRITICAL: Without this, sensors going offline then back online to their
-  # previous value won't trigger updates (e.g., gate offline as "closed", comes back as "closed")
-  # NOTE: restore_value = no because we don't know sensor availability on boot - must wait for HA
-  - id: last_displayed_gate_1_has_state
-    type: bool
-    restore_value: no
-    initial_value: 'false'
-
-  - id: last_displayed_gate_2_has_state
-    type: bool
-    restore_value: no
-    initial_value: 'false'
-
-  - id: last_displayed_gate_3_has_state
-    type: bool
-    restore_value: no
-    initial_value: 'false'
-
-  - id: last_displayed_lock_has_state
-    type: bool
-    restore_value: no
-    initial_value: 'false'
-
-  - id: last_displayed_weather_condition_has_state
-    type: bool
-    restore_value: no
-    initial_value: 'false'
-
-  - id: last_displayed_charger_status_has_state
-    type: bool
-    restore_value: no
-    initial_value: 'false'
 
   # === HOME ASSISTANT CONNECTION TRACKING ===
   # Tracks whether HA is currently connected (only tracks "Home Assistant" API client)
@@ -382,13 +297,6 @@ globals:
     type: long
     restore_value: yes
     initial_value: '0'
-
-  # Last displayed charging power (for threshold comparison)
-  # Using -1.0 as sentinel to detect first reading
-  - id: last_display_charging_power
-    type: float
-    restore_value: yes
-    initial_value: '-1.0'
 
 # Display refresh script - executes the complete display update cycle
 # TIMING: Takes ~6 seconds total (2s poll delay + ~4s display update)
@@ -406,11 +314,12 @@ script:
 
       # Poll Home Assistant to get the absolute latest sensor values
       # This ensures we're not displaying stale data from the last 15-second poll
-      # The update_entity service forces HA to fetch fresh values from integrations
+      # Request fresh data from Home Assistant
+      # Automatically includes all HA entities from our sensor objects (excludes ESPHome built-ins)
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: "sensor.birgenshire_temp,sensor.openweathermap_condition,sensor.birgenshire_solar_power,sensor.solar_production_last_24h_2,sensor.home_consumption_last_24h_2,sensor.tesla_wall_connector_current_power,sensor.tesla_wall_connector_status,binary_sensor.aqara_door_and_window_sensor_p2_door_2,binary_sensor.aqara_door_and_window_sensor_p2_door_3,binary_sensor.aqara_door_and_window_sensor_p2_door,lock.shed_lock"
+            entity_id: !lambda 'return ISensor::get_ha_entity_list();'
 
       # Wait for HA to poll its integrations and push updated values back to us
       # During this delay, sensor on_value/on_state callbacks may fire with new data
@@ -431,58 +340,8 @@ script:
           ESP_LOGD("main", "Caching display values at: %s (timestamp: %ld)", time_str, refresh_time);
 
       # Cache all sensor states that we're about to render on the display
-      # These cached values serve two purposes:
-      # 1. Display rendering (in the lambda below)
-      # 2. Mismatch detection (compared against polled values in 15-second loop)
-      # CRITICAL: We must cache BOTH the value AND whether the sensor has state
-      # This prevents missed updates when sensors go offline then come back to same value
-      - lambda: |-
-          // Gate sensors: Cache value AND has_state status
-          // CRITICAL: Capture has_state ONCE to avoid TOCTOU race condition
-          bool gate1_has_state = id(gate_1_status).has_state();
-          id(last_displayed_gate_1_has_state) = gate1_has_state;
-          if (gate1_has_state) {
-            id(last_displayed_gate_1) = id(gate_1_status).state;
-          }
-
-          bool gate2_has_state = id(gate_2_status).has_state();
-          id(last_displayed_gate_2_has_state) = gate2_has_state;
-          if (gate2_has_state) {
-            id(last_displayed_gate_2) = id(gate_2_status).state;
-          }
-
-          bool gate3_has_state = id(gate_3_status).has_state();
-          id(last_displayed_gate_3_has_state) = gate3_has_state;
-          if (gate3_has_state) {
-            id(last_displayed_gate_3) = id(gate_3_status).state;
-          }
-
-          // Lock sensor: Cache value AND has_state status
-          bool lock_has_state = id(gate_3_lock_status).has_state();
-          id(last_displayed_lock_has_state) = lock_has_state;
-          if (lock_has_state) {
-            id(last_displayed_lock) = id(gate_3_lock_status).state;
-          }
-
-          // Weather condition: Cache value AND has_state status
-          bool weather_has_state = id(weather_condition_now).has_state();
-          id(last_displayed_weather_condition_has_state) = weather_has_state;
-          if (weather_has_state) {
-            id(last_displayed_weather_condition) = id(weather_condition_now).state;
-          }
-
-          // Charger status: Cache value AND has_state status
-          bool charger_has_state = id(tesla_wall_connector_status).has_state();
-          id(last_displayed_charger_status_has_state) = charger_has_state;
-          if (charger_has_state) {
-            id(last_displayed_charger_status) = id(tesla_wall_connector_status).state;
-          }
-
-          // Threshold-based sensor values (used for change detection)
-          // These are less critical since they use thresholds and initialize on first reading
-          if (id(weather_temperature).has_state()) id(last_display_temperature) = id(weather_temperature).state;
-          if (id(solar_power_current).has_state()) id(last_display_solar_power) = id(solar_power_current).state;
-          if (id(tesla_charging_power).has_state()) id(last_display_charging_power) = id(tesla_charging_power).state;
+      # Using unified linked list to update ALL sensors automatically
+      - lambda: 'ISensor::update_all();'
 
       # Trigger display update - THIS BLOCKS for ~4 seconds
       # The display hardware busy pin holds the driver until refresh completes
@@ -512,122 +371,23 @@ time:
                 - homeassistant.service:
                     service: homeassistant.update_entity
                     data:
-                      entity_id: "sensor.birgenshire_temp,sensor.openweathermap_condition,sensor.birgenshire_solar_power,sensor.solar_production_last_24h_2,sensor.home_consumption_last_24h_2,sensor.tesla_wall_connector_current_power,sensor.tesla_wall_connector_status,binary_sensor.aqara_door_and_window_sensor_p2_door_2,binary_sensor.aqara_door_and_window_sensor_p2_door_3,binary_sensor.aqara_door_and_window_sensor_p2_door,lock.shed_lock"
+                      entity_id: !lambda 'return ISensor::get_ha_entity_list();'
 
                 # Wait for HA to poll and send updated values
                 # During this delay, on_state/on_value callbacks will fire if sensors changed
                 - delay: 2s
 
-                # MISMATCH DETECTION: Compare polled values against what's currently displayed
-                # This catches the case where:
-                #   - Push update was missed (network hiccup, HA was busy, etc.)
-                #   - Display is now showing stale data
-                #   - Polled value differs from displayed value
-                # CRITICAL: We also check if has_state changed (sensor went offline or came back online)
-                # Each sensor does early return on mismatch for efficiency
+                # UNIFIED CHANGE DETECTION: Check all sensors using sensor state system
+                # ISensor::check_all_for_changes() automatically:
+                #   - Checks ALL 9 sensors (including threshold sensors!)
+                #   - Detects availability changes (sensor online/offline)
+                #   - Detects value changes per sensor type:
+                #     * Binary/Text: ANY change
+                #     * Threshold: Only changes exceeding threshold
                 - lambda: |-
-                    // Gate 1: Check for state mismatch OR has_state change
-                    bool gate1_has_state = id(gate_1_status).has_state();
-                    if (gate1_has_state != id(last_displayed_gate_1_has_state)) {
-                      const char* reason = gate1_has_state ?
-                        "Gate 1 came back online - triggering update" :
-                        "Gate 1 went offline - triggering update";
-                      ${code_trigger_update}
+                    if (ISensor::check_all_for_changes()) {
+                      id(data_updated) = true;
                       return;
-                    }
-                    // At this point: gate1_has_state == last_displayed_gate_1_has_state (invariant)
-                    // Check value only if both have state
-                    if (gate1_has_state) {  // Could also use last_displayed_gate_1_has_state (same value)
-                      if (id(gate_1_status).state != id(last_displayed_gate_1)) {
-                        const char* reason = "Gate 1 state mismatch detected - triggering update";
-                        ${code_trigger_update}
-                        return;
-                      }
-                    }
-
-                    // Gate 2: Check for state mismatch OR has_state change
-                    bool gate2_has_state = id(gate_2_status).has_state();
-                    if (gate2_has_state != id(last_displayed_gate_2_has_state)) {
-                      const char* reason = gate2_has_state ?
-                        "Gate 2 came back online - triggering update" :
-                        "Gate 2 went offline - triggering update";
-                      ${code_trigger_update}
-                      return;
-                    }
-                    if (gate2_has_state) {
-                      if (id(gate_2_status).state != id(last_displayed_gate_2)) {
-                        const char* reason = "Gate 2 state mismatch detected - triggering update";
-                        ${code_trigger_update}
-                        return;
-                      }
-                    }
-
-                    // Gate 3: Check for state mismatch OR has_state change
-                    bool gate3_has_state = id(gate_3_status).has_state();
-                    if (gate3_has_state != id(last_displayed_gate_3_has_state)) {
-                      const char* reason = gate3_has_state ?
-                        "Gate 3 came back online - triggering update" :
-                        "Gate 3 went offline - triggering update";
-                      ${code_trigger_update}
-                      return;
-                    }
-                    if (gate3_has_state) {
-                      if (id(gate_3_status).state != id(last_displayed_gate_3)) {
-                        const char* reason = "Gate 3 state mismatch detected - triggering update";
-                        ${code_trigger_update}
-                        return;
-                      }
-                    }
-
-                    // Lock: Check for state mismatch OR has_state change
-                    bool lock_has_state = id(gate_3_lock_status).has_state();
-                    if (lock_has_state != id(last_displayed_lock_has_state)) {
-                      const char* reason = lock_has_state ?
-                        "Lock came back online - triggering update" :
-                        "Lock went offline - triggering update";
-                      ${code_trigger_update}
-                      return;
-                    }
-                    if (lock_has_state) {
-                      if (id(gate_3_lock_status).state != id(last_displayed_lock)) {
-                        const char* reason = "Lock state mismatch detected - triggering update";
-                        ${code_trigger_update}
-                        return;
-                      }
-                    }
-
-                    // Weather condition: Check for state mismatch OR has_state change
-                    bool weather_has_state = id(weather_condition_now).has_state();
-                    if (weather_has_state != id(last_displayed_weather_condition_has_state)) {
-                      const char* reason = weather_has_state ?
-                        "Weather condition came back online - triggering update" :
-                        "Weather condition went offline - triggering update";
-                      ${code_trigger_update}
-                      return;
-                    }
-                    if (weather_has_state) {
-                      if (id(weather_condition_now).state != id(last_displayed_weather_condition)) {
-                        const char* reason = "Weather condition mismatch detected - triggering update";
-                        ${code_trigger_update}
-                        return;
-                      }
-                    }
-
-                    // Charger: Check for state mismatch OR has_state change
-                    bool charger_has_state = id(tesla_wall_connector_status).has_state();
-                    if (charger_has_state != id(last_displayed_charger_status_has_state)) {
-                      const char* reason = charger_has_state ?
-                        "Charger status came back online - triggering update" :
-                        "Charger status went offline - triggering update";
-                      ${code_trigger_update}
-                      return;
-                    }
-                    if (charger_has_state) {
-                      if (id(tesla_wall_connector_status).state != id(last_displayed_charger_status)) {
-                        const char* reason = "Charger status mismatch detected - triggering update";
-                        ${code_trigger_update}
-                        return;
-                      }
                     }
 
                 # FORCED REFRESH: Only check if no sensor changes were detected above
@@ -794,236 +554,143 @@ font:
 
 
 binary_sensor:
-  # === GATE STATUS SENSORS ===
-  # Aqara door/window sensors on three gates
-  # on_state triggers immediately when gate opens/closes (push update from HA)
-  # Each gate sensor does two things:
-  #   1. Updates last_ha_connection_time (via code_sensor_received)
-  #   2. Sets data_updated=true to trigger display refresh (via code_trigger_update)
-
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # BINARY SENSORS - Gate sensors
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
   - platform: homeassistant
-    entity_id: binary_sensor.aqara_door_and_window_sensor_p2_door_2
-    id: gate_1_status
+    entity_id: "binary_sensor.aqara_door_and_window_sensor_p2_door_2"
+    id: _gate1
     on_state:
       then:
-        - lambda: |-
-            ${code_sensor_received}
-            const char* reason = "Gate 1 state changed - triggering update";
-            ${code_trigger_update}
-
+        - lambda: 'SENSOR_UPDATE_CALLBACK(gate1)'
+  
   - platform: homeassistant
-    entity_id: binary_sensor.aqara_door_and_window_sensor_p2_door_3
-    id: gate_2_status
+    entity_id: "binary_sensor.aqara_door_and_window_sensor_p2_door_3"
+    id: _gate2
     on_state:
       then:
-        - lambda: |-
-            ${code_sensor_received}
-            const char* reason = "Gate 2 state changed - triggering update";
-            ${code_trigger_update}
-
+        - lambda: 'SENSOR_UPDATE_CALLBACK(gate2)'
+  
   - platform: homeassistant
-    entity_id: binary_sensor.aqara_door_and_window_sensor_p2_door
-    id: gate_3_status
+    entity_id: "binary_sensor.aqara_door_and_window_sensor_p2_door"
+    id: _gate3
     on_state:
       then:
-        - lambda: |-
-            ${code_sensor_received}
-            const char* reason = "Gate 3 state changed - triggering update";
-            ${code_trigger_update}
+        - lambda: 'SENSOR_UPDATE_CALLBACK(gate3)'
 
 text_sensor:
-  # === STRING-BASED SENSORS ===
-  # These must be text_sensor (not sensor) because they return string states like "charging", "locked", etc.
-
-  # Tesla Wall Connector status
-  # Possible values: "charging", "not_connected", "connected", "ready", "charging_finished", etc.
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # TEXT SENSORS - Status sensors
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
   - platform: homeassistant
-    entity_id: sensor.tesla_wall_connector_status
-    id: tesla_wall_connector_status
+    entity_id: "lock.shed_lock"
+    id: _lock
     on_value:
       then:
-        - lambda: |-
-            ${code_sensor_received}
-            const char* reason = "Charger status changed - triggering update";
-            ${code_trigger_update}
-
-  # Side gate lock sensor (must be text_sensor since it returns "locked"/"unlocked")
+        - lambda: 'SENSOR_UPDATE_CALLBACK(lock)'
+  
   - platform: homeassistant
-    entity_id: lock.shed_lock
-    id: gate_3_lock_status
+    entity_id: "sensor.openweathermap_condition"
+    id: _weather
     on_value:
       then:
-        - lambda: |-
-            ${code_sensor_received}
-            const char* reason = "Lock status changed - triggering update";
-            ${code_trigger_update}
-
-  # Weather condition (must be text_sensor since it returns string states)
+        - lambda: 'SENSOR_UPDATE_CALLBACK(weather)'
+  
   - platform: homeassistant
-    entity_id: sensor.openweathermap_condition
-    id: weather_condition_now
+    entity_id: "sensor.tesla_wall_connector_status"
+    id: _charger
     on_value:
       then:
-        - lambda: |-
-            ${code_sensor_received}
-            const char* reason = "Weather condition changed - triggering update";
-            ${code_trigger_update}
-
-  # Gate names
-  - platform: template
-    id: gate_1_name
-    lambda: 'return {"Sidewalk"};'
-
-  - platform: template
-    id: gate_2_name
-    lambda: 'return {"Driveway"};'
-
-  - platform: template
-    id: gate_3_name
-    lambda: 'return {"Side"};'
+        - lambda: 'SENSOR_UPDATE_CALLBACK(charger)'
 
 sensor:
-  # Display monitoring sensors
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # DISPLAY MONITORING SENSORS (NOT AUTO-GENERATED)
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
   - platform: template
-    name: "Weatherman - Display Last Update"
+    name: "Homink - Display Last Update"
     device_class: timestamp
     entity_category: "diagnostic"
     id: display_last_update
 
   - platform: template
-    name: "Weatherman - Recorded Display Refresh"
+    name: "Homink - Recorded Display Refresh"
     accuracy_decimals: 0
     unit_of_measurement: "Refreshes"
     state_class: "total_increasing"
     entity_category: "diagnostic"
     lambda: 'return id(recorded_display_refresh);'
 
-  # Pull 24-hour refresh count from HA and republish it back to HA
-  # This makes the HA-calculated value visible in ESPHome's interface
-  # Why: Allows viewing 24h refresh count directly in ESPHome without opening HA
   - platform: homeassistant
     entity_id: sensor.e_ink_refreshes_last_24h
     id: refreshes_last_24h_ha
-    internal: false  # Republish to HA so it appears in ESPHome
-    name: "Weatherman - Refreshes Last 24h"
+    internal: false
+    name: "Homink - Refreshes Last 24h"
     unit_of_measurement: "Refreshes"
     accuracy_decimals: 0
     state_class: "measurement"
     entity_category: "diagnostic"
 
   - platform: wifi_signal
-    name: "Weatherman - WiFi Signal Strength"
-    id: wifisignal
+    name: "Homink - WiFi Signal Strength"
+    id: wifi_rssi_sensor
     unit_of_measurement: "dBm"
     entity_category: "diagnostic"
     update_interval: 60s
 
-  # Sun elevation for day/night detection
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # THRESHOLD SENSORS - Numeric sensors with change thresholds
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
   - platform: homeassistant
-    entity_id: sun.sun
+    entity_id: "sensor.birgenshire_temp"
+    id: _temperature
+    on_value:
+      then:
+        - lambda: 'SENSOR_UPDATE_CALLBACK(temperature)'
+  
+  - platform: homeassistant
+    entity_id: "sensor.birgenshire_solar_power"
+    id: _solar_power
+    on_value:
+      then:
+        - lambda: 'SENSOR_UPDATE_CALLBACK(solar_power)'
+  
+  - platform: homeassistant
+    entity_id: "sensor.tesla_wall_connector_current_power"
+    id: _charging_power
+    on_value:
+      then:
+        - lambda: 'SENSOR_UPDATE_CALLBACK(charging_power)'
+  
+  # ═══════════════════════════════════════════════════════════════════════════════
+  # PASSIVE SENSORS - Track HA connection but never trigger display updates
+  # ═══════════════════════════════════════════════════════════════════════════════
+  
+  - platform: homeassistant
+    entity_id: "sun.sun"
     attribute: elevation
-    id: sun_elevation
+    id: _sun_elev
     on_value:
       then:
-        - lambda: '${code_sensor_received}'
-
-  # === THRESHOLD-BASED SENSORS ===
-  # These sensors use thresholds to reduce unnecessary display refreshes
-  # Display only updates when value changes by more than the threshold
-  # Benefits: Longer display life, fewer unnecessary refreshes
-  # Note: Threshold is checked BEFORE triggering update (sentinel value -999.0 for first reading)
-
-  # Temperature sensor: Updates display when temp changes by ≥1°F
+        - lambda: 'SENSOR_UPDATE_CALLBACK(sun_elev)'
+  
   - platform: homeassistant
-    entity_id: sensor.birgenshire_temp
-    id: weather_temperature
+    entity_id: "sensor.solar_production_last_24h_2"
+    id: _solar_energy
     on_value:
       then:
-        - lambda: |-
-            ${code_sensor_received}
-            // Skip threshold check if update already pending (avoids redundant checks)
-            if (id(data_updated)) {
-              return;
-            }
-            // First reading: Initialize baseline without triggering update
-            if (id(last_display_temperature) == -999.0) {
-              id(last_display_temperature) = x;
-              ESP_LOGD("main", "Initialized temperature baseline: %.1f", x);
-              return;
-            }
-            // Check if change exceeds threshold
-            float temp_change = abs(x - id(last_display_temperature));
-            if (temp_change >= id(threshold_temperature_change)) {
-              char reason[64];
-              snprintf(reason, sizeof(reason), "Temperature changed by %.1f degrees - triggering update", temp_change);
-              ${code_trigger_update}
-            }
-
-  # === SOLAR/ENERGY SENSORS ===
-  # Solar power: Updates display when power changes by ≥0.5 kW
+        - lambda: 'SENSOR_UPDATE_CALLBACK(solar_energy)'
+  
   - platform: homeassistant
-    entity_id: sensor.birgenshire_solar_power
-    id: solar_power_current
+    entity_id: "sensor.home_consumption_last_24h_2"
+    id: _home_consumption
     on_value:
       then:
-        - lambda: |-
-            ${code_sensor_received}
-            // Skip threshold check if update already pending
-            if (id(data_updated)) {
-              return;
-            }
-            // First reading: Initialize baseline
-            if (id(last_display_solar_power) == -999.0) {
-              id(last_display_solar_power) = x;
-              ESP_LOGD("main", "Initialized solar power baseline: %.2f", x);
-              return;
-            }
-            // Check if change exceeds threshold
-            float solar_change = abs(x - id(last_display_solar_power));
-            if (solar_change >= id(threshold_solar_power_change)) {
-              char reason[64];
-              snprintf(reason, sizeof(reason), "Solar power changed by %.2f kW - triggering update", solar_change);
-              ${code_trigger_update}
-            }
-
-  # Charging power: Updates display when power changes by ≥100W
-  - platform: homeassistant
-    entity_id: sensor.tesla_wall_connector_current_power
-    id: tesla_charging_power
-    on_value:
-      then:
-        - lambda: |-
-            ${code_sensor_received}
-            // Skip threshold check if update already pending
-            if (id(data_updated)) {
-              return;
-            }
-            // Only trigger update if charging power changes significantly
-            if (id(last_display_charging_power) == -1.0) {
-              id(last_display_charging_power) = x;
-              ESP_LOGD("main", "Initialized charging power baseline: %.0f", x);
-              return;
-            }
-            float power_change = abs(x - id(last_display_charging_power));
-            if (power_change >= id(threshold_charging_power_change)) {
-              char reason[64];
-              snprintf(reason, sizeof(reason), "Charging power changed by %.0f W - triggering update", power_change);
-              ${code_trigger_update}
-            }
-
-  - platform: homeassistant
-    entity_id: sensor.solar_production_last_24h_2
-    id: solar_energy_today
-    on_value:
-      then:
-        - lambda: '${code_sensor_received}'
-
-  - platform: homeassistant
-    entity_id: sensor.home_consumption_last_24h_2
-    id: home_consumption_today
-    on_value:
-      then:
-        - lambda: '${code_sensor_received}'
+        - lambda: 'SENSOR_UPDATE_CALLBACK(home_consumption)'
 
 # Define colors
 color:
@@ -1070,8 +737,8 @@ display:
       // Helper function to determine if it's nighttime using sun elevation
       // Sun is below horizon when elevation < 0
       auto is_nighttime = []() -> bool {
-        if (id(sun_elevation).has_state()) {
-          return id(sun_elevation).state < -6.0;  // Civil twilight threshold
+        if (sun_elev.has_state()) {
+          return sun_elev.value() < -6.0;  // Civil twilight threshold
         }
         // Fallback to time-based if sun sensor unavailable (8 PM to 6 AM)
         auto time = id(homeassistant_time).now();
@@ -1082,8 +749,8 @@ display:
       // Helper function to check if it's sunset/sunrise time (golden hour/twilight)
       // We use sun elevation between -6° and +6° for both sunrise and sunset
       auto is_sunset = []() -> bool {
-        if (id(sun_elevation).has_state()) {
-          float elev = id(sun_elevation).state;
+        if (sun_elev.has_state()) {
+          float elev = sun_elev.value();
           // Twilight: sun is near horizon (golden hour for both sunrise and sunset)
           return (elev >= -6.0 && elev <= 6.0);
         }
@@ -1176,8 +843,8 @@ display:
         // Visible area is ~436x686 pixels (3.5" x 5.5" with mat)
         // Position in upper right: X=448 (7px from right edge), Y=70 (10px from top edge)
         std::string wifi_icon;
-        if (id(wifisignal).has_state()) {
-          float rssi = id(wifisignal).state;
+        if (wifi_rssi.has_state()) {
+          float rssi = wifi_rssi.value();
 
           // Determine WiFi icon based on signal strength (dBm)
           // Excellent: > -50 dBm (4 bars)
@@ -1201,9 +868,9 @@ display:
         // Use smaller MDI font for WiFi icon (20px)
         it.printf(448, 70, id(font_mdi_small), color_text, TextAlign::TOP_RIGHT, "%s", wifi_icon.c_str());
 
-        // Current weather icon - use cached condition value
-        if (id(last_displayed_weather_condition) != "") {
-          std::string condition = id(last_displayed_weather_condition).c_str();
+        // Current weather icon - use cached condition value from structure
+        if (weather.has_state() && weather.value() != "") {
+          std::string condition = weather.value();
           std::string icon_to_use;
 
           // Check if we have a direct match
@@ -1241,12 +908,12 @@ display:
           it.printf(100, 140, id(font_mdi_large), color_text, TextAlign::TOP_CENTER, "\U000F0026");
         }
 
-        // Current temperature - use cached value
-        if (id(last_display_temperature) != -999.0) {
-          if (id(last_display_temperature) >= 100 || id(last_display_temperature) <= -10) {
-            it.printf(300, 140, id(font_large_bold), color_text, TextAlign::TOP_CENTER, "%.0f°F", id(last_display_temperature));
+        // Current temperature - use cached value from structure
+        if (temperature.has_state()) {
+          if (temperature.value() >= 100 || temperature.value() <= -10) {
+            it.printf(300, 140, id(font_large_bold), color_text, TextAlign::TOP_CENTER, "%.0f°F", temperature.value());
           } else {
-            it.printf(300, 140, id(font_large_bold), color_text, TextAlign::TOP_CENTER, "%2.0f°F", id(last_display_temperature));
+            it.printf(300, 140, id(font_large_bold), color_text, TextAlign::TOP_CENTER, "%2.0f°F", temperature.value());
           }
         } else {
           it.printf(300, 140, id(font_large_bold), color_text, TextAlign::TOP_CENTER, "--°F");
@@ -1263,8 +930,8 @@ display:
         // Solar Output - use cached value
         it.printf(60, 339, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F0A72");
         it.printf(120, 342, id(font_name), color_text, TextAlign::CENTER_LEFT, "Solar Output");
-        if (id(last_display_solar_power) != -999.0) {
-          float current_solar = id(last_display_solar_power) < 0 ? 0.0 : id(last_display_solar_power);
+        if (solar_power.has_state()) {
+          float current_solar = solar_power.value() < 0 ? 0.0 : solar_power.value();
           it.printf(420, 342, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "%.1f kW", current_solar);
         } else {
           it.printf(420, 342, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "-- kW");
@@ -1273,8 +940,8 @@ display:
         // Solar Production Last 24 Hours
         it.printf(60, 382, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F140C");
         it.printf(120, 385, id(font_name), color_text, TextAlign::CENTER_LEFT, "Solar 24hr");
-        if (id(solar_energy_today).has_state()) {
-          it.printf(420, 385, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "%.0f kWh", id(solar_energy_today).state);
+        if (solar_energy.has_state()) {
+          it.printf(420, 385, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "%.0f kWh", solar_energy.value());
         } else {
           it.printf(420, 385, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "-- kWh");
         }
@@ -1282,20 +949,20 @@ display:
         // Home Consumption Last 24 Hours
         it.printf(60, 425, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F02DC");
         it.printf(120, 428, id(font_name), color_text, TextAlign::CENTER_LEFT, "Home 24hr");
-        if (id(home_consumption_today).has_state()) {
-          it.printf(420, 428, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "%.0f kWh", id(home_consumption_today).state);
+        if (home_consumption.has_state()) {
+          it.printf(420, 428, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "%.0f kWh", home_consumption.value());
         } else {
           it.printf(420, 428, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "-- kWh");
         }
 
-        // Car Charging - use cached status and power
-        if (id(last_displayed_charger_status) != "" && id(last_displayed_charger_status) != "unavailable") {
-          std::string status = id(last_displayed_charger_status);
+        // Car Charging - use cached status and power from structures
+        if (charger.has_state() && charger.value() != "unavailable") {
+          std::string status = charger.value();
           if (status == "charging" || status == "charging_reduced") {
             // Actively charging - show actual power with power factor applied
             it.printf(60, 468, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F007D");
-            if (id(last_display_charging_power) != -1.0) {
-              float real_power_kw = (id(last_display_charging_power) * id(tesla_power_factor)) / 1000.0;
+            if (charging_power.has_state()) {
+              float real_power_kw = (charging_power.value() * id(tesla_power_factor)) / 1000.0;
               it.printf(420, 471, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "%.1f kW", real_power_kw);
             } else {
               it.printf(420, 471, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "Active");
@@ -1328,40 +995,39 @@ display:
         // =====================================================================
         it.printf(240, 521, id(font_title), color_text, TextAlign::TOP_CENTER, "GATES");
 
-        // Gate 1 - use cached has_state flag (not live has_state)
-        // This ensures display shows what we actually cached, not what's current
-        if (id(last_displayed_gate_1_has_state)) {
+        // Gate 1 - render using cached structure state
+        if (gate1.has_state()) {
           it.printf(60, 592, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT,
-            id(last_displayed_gate_1) ? "\U000F081C" : "\U000F081A");
+            gate1.value() ? "\U000F081C" : "\U000F081A");
           it.printf(420, 595, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT,
-            id(last_displayed_gate_1) ? "OPEN" : "CLOSED");
+            gate1.value() ? "OPEN" : "CLOSED");
         } else {
           it.printf(60, 592, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F0205");
           it.printf(420, 595, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "UNKNOWN");
         }
-        it.printf(120, 595, id(font_name), color_text, TextAlign::CENTER_LEFT, "%s", id(gate_1_name).state.c_str());
+        it.printf(120, 595, id(font_name), color_text, TextAlign::CENTER_LEFT, "%s", gate1.name());
 
-        // Gate 2 - use cached has_state flag
-        if (id(last_displayed_gate_2_has_state)) {
+        // Gate 2 - render using cached structure state
+        if (gate2.has_state()) {
           it.printf(60, 640, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT,
-            id(last_displayed_gate_2) ? "\U000F081C" : "\U000F081A");
+            gate2.value() ? "\U000F081C" : "\U000F081A");
           it.printf(420, 643, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT,
-            id(last_displayed_gate_2) ? "OPEN" : "CLOSED");
+            gate2.value() ? "OPEN" : "CLOSED");
         } else {
           it.printf(60, 640, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F0205");
           it.printf(420, 643, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "UNKNOWN");
         }
-        it.printf(120, 643, id(font_name), color_text, TextAlign::CENTER_LEFT, "%s", id(gate_2_name).state.c_str());
+        it.printf(120, 643, id(font_name), color_text, TextAlign::CENTER_LEFT, "%s", gate2.name());
 
-        // Gate 3 - Side gate with lock detection - use cached has_state flags
-        if (id(last_displayed_gate_3_has_state) && id(last_displayed_lock_has_state)) {
-          if (id(last_displayed_gate_3)) {
+        // Gate 3 - Side gate with lock detection - use cached structure states
+        if (gate3.has_state() && lock.has_state()) {
+          if (gate3.value()) {
             // Gate is open - show open door icon
             it.printf(60, 688, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F081C");
             it.printf(420, 691, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "OPEN");
           } else {
             // Gate is closed - check lock status
-            if (id(last_displayed_lock) == "unlocked") {
+            if (lock.value() == "unlocked") {
               // Closed and unlocked
               it.printf(60, 688, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F033F");
               it.printf(420, 691, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "UNLOCKED");
@@ -1376,7 +1042,7 @@ display:
           it.printf(60, 688, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F0205");
           it.printf(420, 691, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "UNKNOWN");
         }
-        it.printf(120, 691, id(font_name), color_text, TextAlign::CENTER_LEFT, "%s", id(gate_3_name).state.c_str());
+        it.printf(120, 691, id(font_name), color_text, TextAlign::CENTER_LEFT, "%s", gate3.name());
 
         // =====================================================================
         // FOOTER - Refreshed/Last Seen Timestamp
