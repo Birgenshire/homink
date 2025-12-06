@@ -152,22 +152,11 @@ esphome:
       priority: 200.0
       then:
         # BOOT SEQUENCE:
-        # 1. Show "Waiting for Data" screen immediately (blocks for display update ~4 seconds)
-        # 2. Wait for at least one sensor to arrive from HA (usually ready after step 1 completes)
-        # 3. Refresh display with real data
-        # Note: No artificial delays needed - display update provides natural wait time
-        - component.update: eink_display
-        - wait_until:
-            condition:
-              lambda: 'return id(_temperature).has_state();'
-        - logger.log: "Initial sensor data received: Refreshing display..."
-        # Initialize sensor references (X-macro expands SENSOR_REGISTRY to set_sensor calls)
-        - lambda: |-
-            SENSOR_INIT_ALL();
-
-            // Update all sensors using unified linked list
-            ISensor::update_all();
-        - lambda: 'id(initial_data_received) = true;'
+        # 1. Initialize sensor references (X-macro expands to set_sensor calls)
+        # 2. Trigger initial display update (sensors show "--" until data arrives)
+        # 3. Normal polling loop handles subsequent updates
+        - lambda: 'SENSOR_INIT_ALL();'
+        - logger.log: "Boot complete, triggering initial display update..."
         - script.execute: update_screen
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -222,12 +211,6 @@ globals:
   # === DISPLAY UPDATE FLAGS ===
   # Signals that sensor data has changed enough to warrant a display refresh
   - id: data_updated
-    type: bool
-    restore_value: no
-    initial_value: 'false'
-
-  # Tracks whether initial sensor data has been received (prevents updates before boot completes)
-  - id: initial_data_received
     type: bool
     restore_value: no
     initial_value: 'false'
@@ -425,7 +408,7 @@ time:
           # Then check if display needs refresh
           - if:
               condition:
-                lambda: 'return id(data_updated) == true && id(initial_data_received) == true;'
+                lambda: 'return id(data_updated) == true;'
               then:
                 - logger.log: "Sensor data updated: Refreshing display..."
                 - script.execute: update_screen
@@ -805,257 +788,251 @@ display:
           {"squall", "\U000F059D"},
         };
 
-      // Show loading screen before data is received
-      if (id(initial_data_received) == false) {
-        it.printf(240, 390, id(font_small_bold), color_text, TextAlign::TOP_CENTER, "WAITING FOR DATA...");
+      // =====================================================================
+      // 5.5-inch guide lines (commented out - used during development)
+      // =====================================================================
+      // These lines marked the visible area for a 5.5" mat opening
+      // Display spec: 0.205mm dot pitch = 123.9 DPI
+      // 5.5 inches = 681.45 pixels ≈ 681 pixels
+      // Center with margins: (800 - 681) / 2 = 59.5px ≈ 60px top, 60px bottom
+      // Top line at 60px, bottom at 741px (60 + 681 = 741)
+      // Uncomment these lines if you need to see the mat boundaries:
+      // it.line(0, 60, 480, 60, color_text);
+      // it.line(0, 741, 480, 741, color_text);
+
+      // =====================================================================
+      // WEATHER SECTION (Top)
+      // =====================================================================
+      it.printf(240, 85, id(font_title), color_text, TextAlign::TOP_CENTER, "WEATHER");
+
+      // WiFi signal strength indicator (upper right corner - within visible frame area)
+      // Visible area is ~436x686 pixels (3.5" x 5.5" with mat)
+      // Position in upper right: X=448 (7px from right edge), Y=70 (10px from top edge)
+      std::string wifi_icon;
+      if (wifi_rssi.has_state()) {
+        float rssi = wifi_rssi.value();
+
+        // Determine WiFi icon based on signal strength (dBm)
+        // Excellent: > -50 dBm (4 bars)
+        // Good: -50 to -60 dBm (3 bars)
+        // Fair: -60 to -70 dBm (2 bars)
+        // Weak: < -70 dBm (1 bar)
+        if (rssi > -50) {
+          wifi_icon = "\U000F0928"; // wifi-strength-4
+        } else if (rssi > -60) {
+          wifi_icon = "\U000F0925"; // wifi-strength-3
+        } else if (rssi > -70) {
+          wifi_icon = "\U000F0922"; // wifi-strength-2
+        } else {
+          wifi_icon = "\U000F091F"; // wifi-strength-1
+        }
       } else {
+        // No WiFi connection
+        wifi_icon = "\U000F092D"; // wifi-strength-off
+      }
 
-        // =====================================================================
-        // 5.5-inch guide lines (commented out - used during development)
-        // =====================================================================
-        // These lines marked the visible area for a 5.5" mat opening
-        // Display spec: 0.205mm dot pitch = 123.9 DPI
-        // 5.5 inches = 681.45 pixels ≈ 681 pixels
-        // Center with margins: (800 - 681) / 2 = 59.5px ≈ 60px top, 60px bottom
-        // Top line at 60px, bottom at 741px (60 + 681 = 741)
-        // Uncomment these lines if you need to see the mat boundaries:
-        // it.line(0, 60, 480, 60, color_text);
-        // it.line(0, 741, 480, 741, color_text);
+      // Use smaller MDI font for WiFi icon (20px)
+      it.printf(448, 70, id(font_mdi_small), color_text, TextAlign::TOP_RIGHT, "%s", wifi_icon.c_str());
 
-        // =====================================================================
-        // WEATHER SECTION (Top)
-        // =====================================================================
-        it.printf(240, 85, id(font_title), color_text, TextAlign::TOP_CENTER, "WEATHER");
+      // Current weather icon - use cached condition value from structure
+      if (weather.has_state() && weather.value() != "") {
+        std::string condition = weather.value();
+        std::string icon_to_use;
 
-        // WiFi signal strength indicator (upper right corner - within visible frame area)
-        // Visible area is ~436x686 pixels (3.5" x 5.5" with mat)
-        // Position in upper right: X=448 (7px from right edge), Y=70 (10px from top edge)
-        std::string wifi_icon;
-        if (wifi_rssi.has_state()) {
-          float rssi = wifi_rssi.value();
+        // Check if we have a direct match
+        if (weather_icon_map.count(condition) > 0) {
+          icon_to_use = weather_icon_map[condition];
+        } else {
+          // Unknown condition - show alert icon
+          icon_to_use = "\U000F0026";
+        }
 
-          // Determine WiFi icon based on signal strength (dBm)
-          // Excellent: > -50 dBm (4 bars)
-          // Good: -50 to -60 dBm (3 bars)
-          // Fair: -60 to -70 dBm (2 bars)
-          // Weak: < -70 dBm (1 bar)
-          if (rssi > -50) {
-            wifi_icon = "\U000F0928"; // wifi-strength-4
-          } else if (rssi > -60) {
-            wifi_icon = "\U000F0925"; // wifi-strength-3
-          } else if (rssi > -70) {
-            wifi_icon = "\U000F0922"; // wifi-strength-2
+        // Apply sunrise/sunset/night logic for clear conditions
+        if (condition == "clear" || condition == "clearsky" || condition == "sunny" ||
+            condition == "clear_day" || condition == "clear_night") {
+          // During sunrise/sunset (golden hour), show sunset icon
+          if (is_sunset()) {
+            icon_to_use = "\U000F059A"; // weather-sunset
+          }
+          // At night, show moon icon
+          else if (is_nighttime()) {
+            icon_to_use = "\U000F0594"; // weather-night
+          }
+          // Otherwise use default sunny icon (already set)
+        }
+        // Apply day/night logic for partly cloudy conditions
+        else if (is_nighttime() &&
+                 (condition == "partlycloudy" || condition == "partly-cloudy" ||
+                  condition == "few_clouds" || condition == "scattered_clouds" ||
+                  condition == "broken_clouds")) {
+          icon_to_use = "\U000F0F31"; // weather-night-partly-cloudy
+        }
+
+        it.printf(100, 140, id(font_mdi_large), color_text, TextAlign::TOP_CENTER, "%s", icon_to_use.c_str());
+      } else {
+        // No condition available - show alert icon
+        it.printf(100, 140, id(font_mdi_large), color_text, TextAlign::TOP_CENTER, "\U000F0026");
+      }
+
+      // Current temperature - use cached value from structure
+      if (temperature.has_state()) {
+        if (temperature.value() >= 100 || temperature.value() <= -10) {
+          it.printf(300, 140, id(font_large_bold), color_text, TextAlign::TOP_CENTER, "%.0f°F", temperature.value());
+        } else {
+          it.printf(300, 140, id(font_large_bold), color_text, TextAlign::TOP_CENTER, "%2.0f°F", temperature.value());
+        }
+      } else {
+        it.printf(300, 140, id(font_large_bold), color_text, TextAlign::TOP_CENTER, "--°F");
+      }
+
+      // Draw separator line
+      it.line(40, 250, 440, 250, color_text);
+
+      // =====================================================================
+      // ENERGY SECTION (Middle)
+      // =====================================================================
+      it.printf(240, 268, id(font_title), color_text, TextAlign::TOP_CENTER, "ENERGY");
+
+      // Solar Output - use cached value
+      it.printf(60, 339, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F0A72");
+      it.printf(120, 342, id(font_name), color_text, TextAlign::CENTER_LEFT, "%s", solar_power.name());
+      if (solar_power.has_state()) {
+        float current_solar = solar_power.value() < 0 ? 0.0 : solar_power.value();
+        it.printf(420, 342, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "%.1f kW", current_solar);
+      } else {
+        it.printf(420, 342, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "-- kW");
+      }
+
+      // Solar Production Last 24 Hours
+      it.printf(60, 382, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F140C");
+      it.printf(120, 385, id(font_name), color_text, TextAlign::CENTER_LEFT, "%s", solar_energy.name());
+      if (solar_energy.has_state()) {
+        it.printf(420, 385, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "%.0f kWh", solar_energy.value());
+      } else {
+        it.printf(420, 385, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "-- kWh");
+      }
+
+      // Home Consumption Last 24 Hours
+      it.printf(60, 425, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F02DC");
+      it.printf(120, 428, id(font_name), color_text, TextAlign::CENTER_LEFT, "%s", home_consumption.name());
+      if (home_consumption.has_state()) {
+        it.printf(420, 428, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "%.0f kWh", home_consumption.value());
+      } else {
+        it.printf(420, 428, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "-- kWh");
+      }
+
+      // Car Charging - use cached status and power from structures
+      if (charger.has_state() && charger.value() != "unavailable") {
+        std::string status = charger.value();
+        if (status == "charging" || status == "charging_reduced") {
+          // Actively charging - show actual power with power factor applied
+          it.printf(60, 468, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F007D");
+          if (charging_power.has_state()) {
+            float real_power_kw = (charging_power.value() * id(tesla_power_factor)) / 1000.0;
+            it.printf(420, 471, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "%.1f kW", real_power_kw);
           } else {
-            wifi_icon = "\U000F091F"; // wifi-strength-1
+            it.printf(420, 471, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "Active");
           }
-        } else {
-          // No WiFi connection
-          wifi_icon = "\U000F092D"; // wifi-strength-off
-        }
-
-        // Use smaller MDI font for WiFi icon (20px)
-        it.printf(448, 70, id(font_mdi_small), color_text, TextAlign::TOP_RIGHT, "%s", wifi_icon.c_str());
-
-        // Current weather icon - use cached condition value from structure
-        if (weather.has_state() && weather.value() != "") {
-          std::string condition = weather.value();
-          std::string icon_to_use;
-
-          // Check if we have a direct match
-          if (weather_icon_map.count(condition) > 0) {
-            icon_to_use = weather_icon_map[condition];
-          } else {
-            // Unknown condition - show alert icon
-            icon_to_use = "\U000F0026";
-          }
-
-          // Apply sunrise/sunset/night logic for clear conditions
-          if (condition == "clear" || condition == "clearsky" || condition == "sunny" ||
-              condition == "clear_day" || condition == "clear_night") {
-            // During sunrise/sunset (golden hour), show sunset icon
-            if (is_sunset()) {
-              icon_to_use = "\U000F059A"; // weather-sunset
-            }
-            // At night, show moon icon
-            else if (is_nighttime()) {
-              icon_to_use = "\U000F0594"; // weather-night
-            }
-            // Otherwise use default sunny icon (already set)
-          }
-          // Apply day/night logic for partly cloudy conditions
-          else if (is_nighttime() &&
-                   (condition == "partlycloudy" || condition == "partly-cloudy" ||
-                    condition == "few_clouds" || condition == "scattered_clouds" ||
-                    condition == "broken_clouds")) {
-            icon_to_use = "\U000F0F31"; // weather-night-partly-cloudy
-          }
-
-          it.printf(100, 140, id(font_mdi_large), color_text, TextAlign::TOP_CENTER, "%s", icon_to_use.c_str());
-        } else {
-          // No condition available - show alert icon
-          it.printf(100, 140, id(font_mdi_large), color_text, TextAlign::TOP_CENTER, "\U000F0026");
-        }
-
-        // Current temperature - use cached value from structure
-        if (temperature.has_state()) {
-          if (temperature.value() >= 100 || temperature.value() <= -10) {
-            it.printf(300, 140, id(font_large_bold), color_text, TextAlign::TOP_CENTER, "%.0f°F", temperature.value());
-          } else {
-            it.printf(300, 140, id(font_large_bold), color_text, TextAlign::TOP_CENTER, "%2.0f°F", temperature.value());
-          }
-        } else {
-          it.printf(300, 140, id(font_large_bold), color_text, TextAlign::TOP_CENTER, "--°F");
-        }
-
-        // Draw separator line
-        it.line(40, 250, 440, 250, color_text);
-
-        // =====================================================================
-        // ENERGY SECTION (Middle)
-        // =====================================================================
-        it.printf(240, 268, id(font_title), color_text, TextAlign::TOP_CENTER, "ENERGY");
-
-        // Solar Output - use cached value
-        it.printf(60, 339, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F0A72");
-        it.printf(120, 342, id(font_name), color_text, TextAlign::CENTER_LEFT, "Solar Output");
-        if (solar_power.has_state()) {
-          float current_solar = solar_power.value() < 0 ? 0.0 : solar_power.value();
-          it.printf(420, 342, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "%.1f kW", current_solar);
-        } else {
-          it.printf(420, 342, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "-- kW");
-        }
-
-        // Solar Production Last 24 Hours
-        it.printf(60, 382, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F140C");
-        it.printf(120, 385, id(font_name), color_text, TextAlign::CENTER_LEFT, "Solar 24hr");
-        if (solar_energy.has_state()) {
-          it.printf(420, 385, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "%.0f kWh", solar_energy.value());
-        } else {
-          it.printf(420, 385, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "-- kWh");
-        }
-
-        // Home Consumption Last 24 Hours
-        it.printf(60, 425, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F02DC");
-        it.printf(120, 428, id(font_name), color_text, TextAlign::CENTER_LEFT, "Home 24hr");
-        if (home_consumption.has_state()) {
-          it.printf(420, 428, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "%.0f kWh", home_consumption.value());
-        } else {
-          it.printf(420, 428, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "-- kWh");
-        }
-
-        // Car Charging - use cached status and power from structures
-        if (charger.has_state() && charger.value() != "unavailable") {
-          std::string status = charger.value();
-          if (status == "charging" || status == "charging_reduced") {
-            // Actively charging - show actual power with power factor applied
-            it.printf(60, 468, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F007D");
-            if (charging_power.has_state()) {
-              float real_power_kw = (charging_power.value() * id(tesla_power_factor)) / 1000.0;
-              it.printf(420, 471, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "%.1f kW", real_power_kw);
-            } else {
-              it.printf(420, 471, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "Active");
-            }
-          } else if (status == "not_connected" || status == "booting") {
-            // Unplugged or booting
-            it.printf(60, 468, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F151C");
-            it.printf(420, 471, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "-- kW");
-          } else if (status == "error") {
-            // Error state - show X
-            it.printf(60, 468, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "X");
-            it.printf(420, 471, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "X");
-          } else {
-            // Plugged in but not charging (connected, ready, negotiating, charging_finished, waiting_car)
-            it.printf(60, 468, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F0079");
-            it.printf(420, 471, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "0.0 kW");
-          }
-        } else {
-          // No data or unavailable - treat as unplugged
+        } else if (status == "not_connected" || status == "booting") {
+          // Unplugged or booting
           it.printf(60, 468, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F151C");
           it.printf(420, 471, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "-- kW");
-        }
-        it.printf(120, 471, id(font_name), color_text, TextAlign::CENTER_LEFT, "Charging");
-
-        // Draw separator line
-        it.line(40, 503, 440, 503, color_text);
-
-        // =====================================================================
-        // GATE STATUS SECTION (Bottom)
-        // =====================================================================
-        it.printf(240, 521, id(font_title), color_text, TextAlign::TOP_CENTER, "GATES");
-
-        // Gate 1 - render using cached structure state
-        if (gate1.has_state()) {
-          it.printf(60, 592, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT,
-            gate1.value() ? "\U000F081C" : "\U000F081A");
-          it.printf(420, 595, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT,
-            gate1.value() ? "OPEN" : "CLOSED");
+        } else if (status == "error") {
+          // Error state - show X
+          it.printf(60, 468, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "X");
+          it.printf(420, 471, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "X");
         } else {
-          it.printf(60, 592, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F0205");
-          it.printf(420, 595, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "UNKNOWN");
+          // Plugged in but not charging (connected, ready, negotiating, charging_finished, waiting_car)
+          it.printf(60, 468, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F0079");
+          it.printf(420, 471, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "0.0 kW");
         }
-        it.printf(120, 595, id(font_name), color_text, TextAlign::CENTER_LEFT, "%s", gate1.name());
+      } else {
+        // No data or unavailable - treat as unplugged
+        it.printf(60, 468, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F151C");
+        it.printf(420, 471, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "-- kW");
+      }
+      it.printf(120, 471, id(font_name), color_text, TextAlign::CENTER_LEFT, "%s", charging_power.name());
 
-        // Gate 2 - render using cached structure state
-        if (gate2.has_state()) {
-          it.printf(60, 640, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT,
-            gate2.value() ? "\U000F081C" : "\U000F081A");
-          it.printf(420, 643, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT,
-            gate2.value() ? "OPEN" : "CLOSED");
+      // Draw separator line
+      it.line(40, 503, 440, 503, color_text);
+
+      // =====================================================================
+      // GATE STATUS SECTION (Bottom)
+      // =====================================================================
+      it.printf(240, 521, id(font_title), color_text, TextAlign::TOP_CENTER, "GATES");
+
+      // Gate 1 - render using cached structure state
+      if (gate1.has_state()) {
+        it.printf(60, 592, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT,
+          gate1.value() ? "\U000F081C" : "\U000F081A");
+        it.printf(420, 595, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT,
+          gate1.value() ? "OPEN" : "CLOSED");
+      } else {
+        it.printf(60, 592, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F0205");
+        it.printf(420, 595, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "UNKNOWN");
+      }
+      it.printf(120, 595, id(font_name), color_text, TextAlign::CENTER_LEFT, "%s", gate1.name());
+
+      // Gate 2 - render using cached structure state
+      if (gate2.has_state()) {
+        it.printf(60, 640, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT,
+          gate2.value() ? "\U000F081C" : "\U000F081A");
+        it.printf(420, 643, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT,
+          gate2.value() ? "OPEN" : "CLOSED");
+      } else {
+        it.printf(60, 640, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F0205");
+        it.printf(420, 643, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "UNKNOWN");
+      }
+      it.printf(120, 643, id(font_name), color_text, TextAlign::CENTER_LEFT, "%s", gate2.name());
+
+      // Gate 3 - Side gate with lock detection - use cached structure states
+      if (gate3.has_state() && lock.has_state()) {
+        if (gate3.value()) {
+          // Gate is open - show open door icon
+          it.printf(60, 688, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F081C");
+          it.printf(420, 691, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "OPEN");
         } else {
-          it.printf(60, 640, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F0205");
-          it.printf(420, 643, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "UNKNOWN");
-        }
-        it.printf(120, 643, id(font_name), color_text, TextAlign::CENTER_LEFT, "%s", gate2.name());
-
-        // Gate 3 - Side gate with lock detection - use cached structure states
-        if (gate3.has_state() && lock.has_state()) {
-          if (gate3.value()) {
-            // Gate is open - show open door icon
-            it.printf(60, 688, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F081C");
-            it.printf(420, 691, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "OPEN");
+          // Gate is closed - check lock status
+          if (lock.value() == "unlocked") {
+            // Closed and unlocked
+            it.printf(60, 688, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F033F");
+            it.printf(420, 691, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "UNLOCKED");
           } else {
-            // Gate is closed - check lock status
-            if (lock.value() == "unlocked") {
-              // Closed and unlocked
-              it.printf(60, 688, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F033F");
-              it.printf(420, 691, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "UNLOCKED");
-            } else {
-              // Closed and locked
-              it.printf(60, 688, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F081A");
-              it.printf(420, 691, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "CLOSED");
-            }
+            // Closed and locked
+            it.printf(60, 688, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F081A");
+            it.printf(420, 691, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "CLOSED");
           }
-        } else {
-          // Either gate sensor or lock sensor unavailable
-          it.printf(60, 688, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F0205");
-          it.printf(420, 691, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "UNKNOWN");
         }
-        it.printf(120, 691, id(font_name), color_text, TextAlign::CENTER_LEFT, "%s", gate3.name());
+      } else {
+        // Either gate sensor or lock sensor unavailable
+        it.printf(60, 688, id(font_mdi_medium), color_text, TextAlign::CENTER_LEFT, "\U000F0205");
+        it.printf(420, 691, id(font_medium_bold), color_text, TextAlign::CENTER_RIGHT, "UNKNOWN");
+      }
+      it.printf(120, 691, id(font_name), color_text, TextAlign::CENTER_LEFT, "%s", gate3.name());
 
-        // =====================================================================
-        // FOOTER - Refreshed/Last Seen Timestamp
-        // =====================================================================
-        char str[40];
-        time_t displayTime;
+      // =====================================================================
+      // FOOTER - Refreshed/Last Seen Timestamp
+      // =====================================================================
+      char str[40];
+      time_t displayTime;
 
-        if (id(ha_connected)) {
-          // Connected - show when display was last refreshed
-          displayTime = id(last_display_refresh_time);
-          if (displayTime > 0) {
-            strftime(str, sizeof(str), "%b %d, %Y %I:%M:%S %p", localtime(&displayTime));
-            it.printf(240, 721, id(font_small_book), color_text, TextAlign::TOP_CENTER, "Refreshed %s", str);
-          } else {
-            // First boot, no refresh yet
-            it.printf(240, 721, id(font_small_book), color_text, TextAlign::TOP_CENTER, "Initializing...");
-          }
+      if (id(ha_connected)) {
+        // Connected - show when display was last refreshed
+        displayTime = id(last_display_refresh_time);
+        if (displayTime > 0) {
+          strftime(str, sizeof(str), "%b %d, %Y %I:%M:%S %p", localtime(&displayTime));
+          it.printf(240, 721, id(font_small_book), color_text, TextAlign::TOP_CENTER, "Refreshed %s", str);
         } else {
-          // Disconnected - show last connection time
-          displayTime = id(last_ha_connection_time);
-          if (displayTime > 0) {
-            strftime(str, sizeof(str), "%b %d, %Y %I:%M:%S %p", localtime(&displayTime));
-            it.printf(240, 721, id(font_small_book), color_text, TextAlign::TOP_CENTER, "Last Seen %s", str);
-          } else {
-            it.printf(240, 721, id(font_small_book), color_text, TextAlign::TOP_CENTER, "No Connection");
-          }
+          // First boot, no refresh yet
+          it.printf(240, 721, id(font_small_book), color_text, TextAlign::TOP_CENTER, "Initializing...");
+        }
+      } else {
+        // Disconnected - show last connection time
+        displayTime = id(last_ha_connection_time);
+        if (displayTime > 0) {
+          strftime(str, sizeof(str), "%b %d, %Y %I:%M:%S %p", localtime(&displayTime));
+          it.printf(240, 721, id(font_small_book), color_text, TextAlign::TOP_CENTER, "Last Seen %s", str);
+        } else {
+          it.printf(240, 721, id(font_small_book), color_text, TextAlign::TOP_CENTER, "No Connection");
         }
       }

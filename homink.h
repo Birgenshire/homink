@@ -47,13 +47,13 @@ SENSOR_TEXT(S_CHARGER, "Charger", "sensor.tesla_wall_connector_status")
 
 // Threshold Sensors (Numeric with change thresholds)
 SENSOR_THRESHOLD(S_TEMPERATURE, "Temperature", "sensor.birgenshire_temp", 1.0)
-SENSOR_THRESHOLD(S_SOLAR_POWER, "Solar Power", "sensor.birgenshire_solar_power", 0.5)
-SENSOR_THRESHOLD(S_CHARGING_POWER, "Charging Power", "sensor.tesla_wall_connector_current_power", 100.0)
+SENSOR_THRESHOLD(S_SOLAR_POWER, "Solar Output", "sensor.birgenshire_solar_power", 0.5)
+SENSOR_THRESHOLD(S_CHARGING_POWER, "Charging", "sensor.tesla_wall_connector_current_power", 100.0)
 
 // Passive Sensors (Track HA connection, never trigger updates)
 SENSOR_PASSIVE(S_SUN_ELEV, "Sun Elevation", "sun.sun")
-SENSOR_PASSIVE(S_SOLAR_ENERGY, "Solar Energy Today", "sensor.solar_production_last_24h_2")
-SENSOR_PASSIVE(S_HOME_CONSUMPTION, "Home Consumption Today", "sensor.home_consumption_last_24h_2")
+SENSOR_PASSIVE(S_SOLAR_ENERGY, "Solar 24hr", "sensor.solar_production_last_24h_2")
+SENSOR_PASSIVE(S_HOME_CONSUMPTION, "Home 24hr", "sensor.home_consumption_last_24h_2")
 
 // WiFi Sensor (ESPHome built-in, not HomeAssistant)
 SENSOR_WIFI(S_WIFI_RSSI, "WiFi Signal", "wifisignal")
