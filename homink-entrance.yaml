@@ -1,8 +1,5 @@
-# ═══════════════════════════════════════════════════════════════════════════════
-# HOMINK-ENTRANCE - Device-Specific Configuration
-# ═══════════════════════════════════════════════════════════════════════════════
-# This file contains only entrance-specific configuration.
-# All shared configuration is in homink-common.yaml (included via packages).
+# HOMINK-ENTRANCE - Device-specific configuration
+# Shared config in homink-common.yaml (included via packages)
 
 # Device-specific substitutions
 substitutions:

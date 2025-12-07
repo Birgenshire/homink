@@ -1,54 +1,34 @@
 #pragma once
 
 #include "esphome.h"
-#include <limits>  // For std::numeric_limits (sentinel values)
-#include <cstring> // For std::strchr (entity_id checking)
+#include <limits>
+#include <cstring>
 
 // ============================================================================
-// SENSOR STATE SYSTEM - Unified Linked List
+// SENSOR STATE SYSTEM
 // ============================================================================
-// ISensor provides ONLY the infrastructure for a single unified linked list.
-// All sensors (regardless of type) are in ONE list, enabling truly generic
-// iteration: ISensor::update_all() or ISensor::check_all_for_changes()
+// Unified linked list containing all sensors regardless of type.
+// Enables generic iteration via ISensor::update_all() and check_all_for_changes().
 
-// ============================================================================
-// ISensor - Minimal base class (ONLY for linked list infrastructure)
-// ============================================================================
-// This class exists for ONE purpose: enable a single unified linked list
-// containing all sensors regardless of their template types.
-//
-// It provides:
-// 1. Linked list pointers (_next)
-// 2. Static list head (_list_head)
-// 3. Auto-registration in constructor
-// 4. Static methods to iterate ALL sensors: update_all(), check_all_for_changes()
-//
-// It does NOT provide virtual methods for sensor operations - those stay
-// in the templated base class where they belong.
+// ISensor - Base class for linked list infrastructure
 class ISensor {
 public:
   virtual ~ISensor() = default;
-  
-  // Pure virtual methods - templated base class implements these
+
+  // Pure virtual methods implemented by templated base class
   virtual void update() = 0;
   virtual bool should_trigger_update() = 0;
   virtual const char *name() const = 0;
-  virtual const char *entity_id() const = 0;  // For generating update lists
+  virtual const char *entity_id() const = 0;
   virtual void log_change(const char *reason) const = 0;
 
-  // ========================================================================
-  // STATIC METHODS - Iterate ALL sensors in ONE unified list
-  // ========================================================================
-  
-  // Update ALL sensors (all types in one call!)
+  // Static methods - iterate all sensors in unified list
   static void update_all() {
     for (ISensor *sensor = _list_head; sensor; sensor = sensor->_next) {
       sensor->update();
     }
   }
-  
-  // Check ALL sensors for changes (all types in one call!)
-  // Returns true if any sensor triggered an update
+
   static bool check_all_for_changes() {
     for (ISensor *sensor = _list_head; sensor; sensor = sensor->_next) {
       if (sensor->should_trigger_update()) {
@@ -58,15 +38,13 @@ public:
     }
     return false;
   }
-  
-  // Generate comma-separated list of Home Assistant entity_ids for polling
-  // Only includes entities with '.' (excludes ESPHome built-ins like "wifisignal")
+
+  // Generate comma-separated list of HA entity_ids (excludes ESPHome built-ins)
   static std::string get_ha_entity_list() {
     std::string list;
     for (ISensor *sensor = _list_head; sensor; sensor = sensor->_next) {
       const char *entity = sensor->entity_id();
-      // Only include if it has a '.' (Home Assistant entity, not ESPHome built-in)
-      if (std::strchr(entity, '.') != nullptr) {
+      if (std::strchr(entity, '.') != nullptr) {  // Has '.' = HA entity
         if (!list.empty()) {
           list += ",";
         }
@@ -77,12 +55,10 @@ public:
   }
 
 protected:
-  // Constructor - automatically adds to unified linked list
   ISensor() : _next(nullptr) {
     if (!_list_head) {
       _list_head = this;
     } else {
-      // Find tail and append
       ISensor *tail = _list_head;
       while (tail->_next) {
         tail = tail->_next;
@@ -92,94 +68,71 @@ protected:
   }
 
 private:
-  ISensor *_next;                    // Next sensor in unified list
-  static ISensor *_list_head;        // Head of unified list (all sensors)
+  ISensor *_next;
+  static ISensor *_list_head;
 };
 
-// Initialize static member - ONE list for ALL sensors
 ISensor *ISensor::_list_head = nullptr;
 
-// ============================================================================
-// Templated base class - Contains ALL sensor logic
-// ============================================================================
+// BaseSensor - Templated sensor base class with common logic
 template<typename ValueType, typename SensorType>
 class BaseSensor : public ISensor {
 public:
-  // Constructor
   BaseSensor(const char *n, const char *entity, ValueType initial_val = ValueType())
-    : ISensor(),  // Calls ISensor constructor - auto-registers in unified list
-      _name(n), _entity_id(entity), _has_state(false),
+    : ISensor(), _name(n), _entity_id(entity), _has_state(false),
       _value(initial_val), _sensor(nullptr) {}
-  
+
   virtual ~BaseSensor() = default;
-  
-  // Public getters (const)
+
   const char *name() const override { return _name; }
   const char *entity_id() const override { return _entity_id; }
-  
+
   bool has_state() const { return _has_state; }
   const ValueType& value() const { return _value; }
-  
-  // Setter for sensor pointer (assigned from YAML)
+
   void set_sensor(SensorType *s) { _sensor = s; }
-  
-  // Public interface (called from YAML or macros)
+
   void log_change(const char *reason) const override {
     ESP_LOGD("main", "%s: %s", _name, reason);
   }
-  
+
   void update() override {
     if (!_sensor) return;
-    
     _has_state = _sensor && _sensor->has_state();
-    
     if (_has_state) {
       update_value_from_sensor();
     }
   }
-  
-  // UNIFIED CHANGE DETECTION - Used by both callbacks and polling
-  // Base class checks availability (common to all sensors)
-  // Then calls derived class to check value significance
+
+  // Check for changes - base class checks availability, derived class checks value
   bool should_trigger_update() override {
     if (!_sensor) return false;
-    
-    // Check if availability changed (ALWAYS significant)
-    // This catches: available→unavailable (show "UNKNOWN") and unavailable→available
+
     bool current_has_state = _sensor->has_state();
     if (current_has_state != _has_state) {
-      ESP_LOGD("main", "%s: Availability changed (%s -> %s)", 
-               _name, 
+      ESP_LOGD("main", "%s: Availability changed (%s -> %s)",
+               _name,
                _has_state ? "available" : "unavailable",
                current_has_state ? "available" : "unavailable");
       return true;
     }
-    
-    // Sensor doesn't have data (and never did) - no change
+
     if (!current_has_state) return false;
-    
-    // Sensor has data - check if value change is significant (derived class decides)
-    // NOTE: By this point we know: _sensor != null && sensor has state
-    // Derived class doesn't need to check these again
+
     return is_value_change_significant();
   }
 
 protected:
-  // Protected helpers (only called internally or by derived classes)
   void update_value_from_sensor() {
     _value = _sensor->state;
   }
-  
-  // Pure virtual - derived classes define what "significant value change" means
-  // Base class handles availability, derived class handles value
+
   virtual bool is_value_change_significant() = 0;
-  
-  // Protected direct access to private members for derived classes
+
   SensorType *_get_sensor() { return _sensor; }
   ValueType& _get_value() { return _value; }
 
 private:
-  // Private data members (leading underscore convention)
   const char *_name;
   const char *_entity_id;
   bool _has_state;
@@ -187,9 +140,7 @@ private:
   SensorType *_sensor;
 };
 
-// ============================================================================
-// StateSensor - Simple sensors (gates, lock, weather, charger)
-// ============================================================================
+// StateSensor - Any value change triggers update
 template<typename ValueType, typename SensorType>
 class StateSensor : public BaseSensor<ValueType, SensorType> {
 public:
@@ -197,25 +148,16 @@ public:
     : BaseSensor<ValueType, SensorType>(n, entity, initial_val) {}
 
 protected:
-  // For stateful sensors: ANY value change is significant
-  // NOTE: Base class guarantees _sensor exists and has state when this is called
   bool is_value_change_significant() override {
     return this->_get_sensor()->state != this->_get_value();
   }
 };
 
-// ============================================================================
-// Type aliases for common sensor types
-// ============================================================================
-// Binary sensors (gates, motion, etc.)
+// Type aliases
 using BinaryStateSensor = StateSensor<bool, esphome::homeassistant::HomeassistantBinarySensor>;
-
-// Text sensors (status strings, weather conditions, etc.)
 using TextStateSensor = StateSensor<std::string, esphome::homeassistant::HomeassistantTextSensor>;
 
-// ============================================================================
-// Threshold sensor - Only triggers on threshold-exceeding changes
-// ============================================================================
+// ThresholdSensor - Only triggers when change exceeds threshold
 template<typename ValueType, typename SensorType>
 class ThresholdSensor : public BaseSensor<ValueType, SensorType> {
 public:
@@ -224,27 +166,21 @@ public:
       _threshold(t) {}
 
 protected:
-  // For threshold sensors: Only trigger if change exceeds threshold
-  // NOTE: Base class guarantees _sensor exists and has state when this is called
-  // NOTE: ValueType must support arithmetic operations (numeric types: int, float, double)
   bool is_value_change_significant() override {
     ValueType current = this->_get_sensor()->state;
-    
-    // First reading - check if still at sentinel value (uninitialized)
-    // Using max() as sentinel means "no baseline set yet"
+
     if (this->_get_value() == std::numeric_limits<ValueType>::max()) {
       this->_get_value() = current;
       ESP_LOGD("main", "%s: Initialized with first value - triggering update", this->name());
       return true;
     }
-    
-    // Check if change exceeds threshold (requires numeric ValueType)
+
     if (std::abs(current - this->_get_value()) > _threshold) {
       ESP_LOGD("main", "%s: Threshold exceeded - triggering update", this->name());
       this->_get_value() = current;
       return true;
     }
-    
+
     return false;
   }
 
@@ -252,14 +188,9 @@ private:
   ValueType _threshold;
 };
 
-// Type alias for float-based threshold sensors
 using FloatThresholdSensor = ThresholdSensor<float, esphome::homeassistant::HomeassistantSensor>;
 
-// ============================================================================
-// Passive sensor - Tracks connection time but never triggers display updates
-// ============================================================================
-// Use for sensors that need to be monitored (for HA connection tracking) but
-// should never trigger display refreshes (e.g., sun_elevation, energy totals)
+// PassiveSensor - Tracks HA connection but never triggers display updates
 template<typename ValueType, typename SensorType>
 class PassiveSensor : public BaseSensor<ValueType, SensorType> {
 public:
@@ -267,23 +198,15 @@ public:
     : BaseSensor<ValueType, SensorType>(n, entity, initial) {}
 
 protected:
-  // Passive sensors NEVER trigger display updates
-  // They track HA connection time (via callback) but don't affect display
   bool is_value_change_significant() override {
-    return false;  // Never significant - never triggers update
+    return false;
   }
 };
 
-// Type alias for float-based passive sensors (most common use case)
 using FloatPassiveSensor = PassiveSensor<float, esphome::homeassistant::HomeassistantSensor>;
-
-// Type alias for WiFi signal sensor (ESPHome built-in, not HomeAssistant)
 using WiFiPassiveSensor = PassiveSensor<float, esphome::wifi_signal::WiFiSignalSensor>;
 
-// ============================================================================
-// FilteredTextStateSensor - Text sensor that ignores specific state values
-// ============================================================================
-// Use for sensors where certain states (like "unavailable") shouldn't trigger updates
+// FilteredTextStateSensor - Ignores transitions to/from specific state values
 class FilteredTextStateSensor : public BaseSensor<std::string, esphome::homeassistant::HomeassistantTextSensor> {
 public:
   FilteredTextStateSensor(const char *n, const char *entity, const char *ignored_value)
@@ -291,25 +214,20 @@ public:
       _ignored_value(ignored_value) {}
 
 protected:
-  // Override: Ignore transitions to/from the filtered value
-  // Base class guarantees _sensor exists and has state when this is called
   bool is_value_change_significant() override {
     std::string current = _get_sensor()->state;
     std::string cached = _get_value();
 
-    // Transitioning TO ignored value - not significant
     if (current == _ignored_value) {
       ESP_LOGD("main", "%s: Ignoring transition to '%s'", name(), _ignored_value);
       return false;
     }
 
-    // Transitioning FROM ignored value - not significant
     if (cached == _ignored_value) {
       ESP_LOGD("main", "%s: Ignoring transition from '%s'", name(), _ignored_value);
       return false;
     }
 
-    // Normal state change between non-ignored values
     return current != cached;
   }
 
@@ -321,8 +239,7 @@ private:
 // MACROS
 // ============================================================================
 
-// Unified callback for ALL sensor types (binary, text, threshold)
-// Uses sensor's should_trigger_update() which checks BOTH availability and value
+// Unified callback - checks availability and value changes
 #define SENSOR_UPDATE_CALLBACK(sensor_var) \
   id(last_ha_connection_time) = id(homeassistant_time).now().timestamp; \
   if (!id(ha_connected)) { \
@@ -336,30 +253,22 @@ private:
   }
 
 // ============================================================================
-// X-MACRO SYSTEM FOR SENSOR REGISTRY
+// X-MACRO SYSTEM
 // ============================================================================
-// SENSOR_* macros are used in homink.h to define sensors once.
-// They expand to C++ variable declarations.
-// SENSOR_INIT_ALL() is defined in homink.h and expands to set_sensor() calls.
-//
-// ESPHome ID convention: automatically prepends "_" to cpp_var name
-// e.g., SENSOR_DEF(gate1) expands to: cpp_var=gate1, esphome_id=_gate1
-
-// --- SENSOR_* macros: Expand to C++ variable declarations ---
-#define SENSOR_BINARY(var, name, entity)             BinaryStateSensor var(name, entity);
-#define SENSOR_TEXT(var, name, entity)               TextStateSensor var(name, entity);
+// SENSOR_* macros expand to C++ variable declarations.
+// SENSOR_INIT_* macros expand to set_sensor() calls.
+// ESPHome prepends "_" to variable names (gate1 → _gate1).
+#define SENSOR_BINARY(var, name, entity)                 BinaryStateSensor var(name, entity);
+#define SENSOR_TEXT(var, name, entity)                   TextStateSensor var(name, entity);
 #define SENSOR_TEXT_FILTERED(var, name, entity, ignored) FilteredTextStateSensor var(name, entity, ignored);
-#define SENSOR_THRESHOLD(var, name, entity, thresh)  FloatThresholdSensor var(name, entity, thresh);
-#define SENSOR_PASSIVE(var, name, entity)            FloatPassiveSensor var(name, entity);
-#define SENSOR_WIFI(var, name, entity)               WiFiPassiveSensor var(name, entity);
+#define SENSOR_THRESHOLD(var, name, entity, thresh)      FloatThresholdSensor var(name, entity, thresh);
+#define SENSOR_PASSIVE(var, name, entity)                FloatPassiveSensor var(name, entity);
+#define SENSOR_WIFI(var, name, entity)                   WiFiPassiveSensor var(name, entity);
 
-// --- SENSOR_INIT_* macros: Used by SENSOR_INIT_ALL() in homink.h ---
-// Token pasting (##) automatically creates _var from var
-// Extra indirection (_SENSOR_INIT) forces macro expansion before token pasting
-#define _SENSOR_INIT(var)             var.set_sensor(&id(_##var));
-#define SENSOR_INIT_BINARY(var)       _SENSOR_INIT(var)
-#define SENSOR_INIT_TEXT(var)         _SENSOR_INIT(var)
+#define _SENSOR_INIT(var)              var.set_sensor(&id(_##var));
+#define SENSOR_INIT_BINARY(var)        _SENSOR_INIT(var)
+#define SENSOR_INIT_TEXT(var)          _SENSOR_INIT(var)
 #define SENSOR_INIT_TEXT_FILTERED(var) _SENSOR_INIT(var)
-#define SENSOR_INIT_THRESHOLD(var)    _SENSOR_INIT(var)
-#define SENSOR_INIT_PASSIVE(var)      _SENSOR_INIT(var)
-#define SENSOR_INIT_WIFI(var)         _SENSOR_INIT(var)
+#define SENSOR_INIT_THRESHOLD(var)     _SENSOR_INIT(var)
+#define SENSOR_INIT_PASSIVE(var)       _SENSOR_INIT(var)
+#define SENSOR_INIT_WIFI(var)          _SENSOR_INIT(var)

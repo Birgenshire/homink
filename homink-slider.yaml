@@ -1,8 +1,5 @@
-# ═══════════════════════════════════════════════════════════════════════════════
-# HOMINK-SLIDER - Device-Specific Configuration
-# ═══════════════════════════════════════════════════════════════════════════════
-# This file contains only slider-specific configuration.
-# All shared configuration is in homink-common.yaml (included via packages).
+# HOMINK-SLIDER - Device-specific configuration
+# Shared config in homink-common.yaml (included via packages)
 
 # Device-specific substitutions
 substitutions:
