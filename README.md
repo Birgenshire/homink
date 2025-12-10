@@ -50,7 +50,7 @@ Based on [esphome-weatherman-dashboard](https://github.com/Madelena/esphome-weat
 ### Connection Monitoring
 
 - Tracks Home Assistant connectivity
-- 30-minute timeout for connection loss detection
+- Configurable timeout for connection loss detection (default: 1 minute)
 - Displays "Last Seen" timestamp when disconnected
 - Automatic reconnection handling
 
@@ -173,7 +173,7 @@ Three steps to add a new sensor:
 **Timers:**
 - Polling interval: 15s
 - Forced refresh: 1800s (30 min)
-- HA connection timeout: 1800s (30 min)
+- HA connection timeout: 60s (1 min, configurable)
 
 **Display:**
 - Dimensions: 800x480 pixels

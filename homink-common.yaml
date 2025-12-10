@@ -4,6 +4,7 @@
 # Shared config for all Homink e-ink dashboards. Device-specific files provide:
 # - device_name, device_ip
 # - tesla_power_factor (installation-specific)
+# - ha_timeout_seconds (HA connection timeout)
 # - Sensor definitions (*_var, *_entity for all sensors)
 #
 # Display Sections: Weather (temp, condition, wifi) | Energy (solar, home, EV) |
@@ -29,21 +30,6 @@ esp32:
 logger:
 
 api:
-  on_client_connected:
-    - lambda: |-
-        ESP_LOGD("api", "Client %s connected from IP %s", client_info.c_str(), client_address.c_str());
-        if (client_info == "Home Assistant") {
-          ESP_LOGD("api", "Home Assistant connected");
-          id(ha_connected) = true;
-        }
-  on_client_disconnected:
-    - lambda: |-
-        ESP_LOGD("api", "Client %s disconnected from IP %s", client_info.c_str(), client_address.c_str());
-        if (client_info == "Home Assistant") {
-          ESP_LOGD("api", "Home Assistant disconnected");
-          id(ha_connected) = false;
-          id(last_ha_connection_time) = id(homeassistant_time).now().timestamp;
-        }
 
 ota:
   platform: esphome
@@ -86,10 +72,15 @@ globals:
     restore_value: no
     initial_value: '1800'
 
+  - id: threshold_ha_timeout  # HA connection timeout (no sensor updates)
+    type: int
+    restore_value: no
+    initial_value: '${ha_timeout_seconds}'
+
   - id: ha_connected
     type: bool
     restore_value: no
-    initial_value: 'true'
+    initial_value: 'false'
 
   - id: last_ha_connection_time
     type: long
@@ -156,8 +147,8 @@ time:
                           long time_since_last_refresh = current_time - id(last_display_refresh_time);
                           long time_since_last_ha_update = current_time - id(last_ha_connection_time);
 
-                          // HA timeout: no sensor updates for 30 minutes
-                          if (id(last_ha_connection_time) > 0 && time_since_last_ha_update >= 1800) {
+                          // HA timeout: no sensor updates for configured duration
+                          if (id(last_ha_connection_time) > 0 && time_since_last_ha_update >= id(threshold_ha_timeout)) {
                             if (id(ha_connected)) {
                               ESP_LOGW("main", "No HA updates for %ld seconds - marking disconnected", time_since_last_ha_update);
                               id(ha_connected) = false;
