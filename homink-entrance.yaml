@@ -6,6 +6,49 @@ substitutions:
   device_name: "Homink Entrance"
   device_ip: "192.168.85.151"
 
+  # Installation-specific power factor
+  tesla_power_factor: "0.789"
+
+  # Sensor definitions - C++ variable names and HA entity IDs
+  # Binary sensors (gates)
+  gate1_var: "gate1"
+  gate1_entity: "binary_sensor.aqara_door_and_window_sensor_p2_door_2"
+  gate2_var: "gate2"
+  gate2_entity: "binary_sensor.aqara_door_and_window_sensor_p2_door_3"
+  gate3_var: "gate3"
+  gate3_entity: "binary_sensor.aqara_door_and_window_sensor_p2_door"
+
+  # Text sensors
+  lock_var: "lock"
+  lock_entity: "lock.shed_lock"
+  weather_var: "weather"
+  weather_entity: "sensor.openweathermap_condition"
+  charger_var: "charger"
+  charger_entity: "sensor.tesla_wall_connector_status"
+
+  # Threshold sensors
+  temperature_var: "temperature"
+  temperature_entity: "sensor.birgenshire_temp"
+  solar_power_var: "solar_power"
+  solar_power_entity: "sensor.birgenshire_solar_power"
+  charging_power_var: "charging_power"
+  charging_power_entity: "sensor.tesla_wall_connector_current_power"
+
+  # Passive sensors
+  sun_elev_var: "sun_elev"
+  sun_elev_entity: "sun.sun"
+  solar_energy_var: "solar_energy"
+  solar_energy_entity: "sensor.solar_production_last_24h_2"
+  home_consumption_var: "home_consumption"
+  home_consumption_entity: "sensor.home_consumption_last_24h_2"
+
+  # WiFi sensor
+  wifi_rssi_var: "wifi_rssi"
+  wifi_rssi_entity: "wifisignal"
+
+  # Diagnostic sensor (optional - for monitoring refresh counts)
+  refreshes_24h_entity: "sensor.e_ink_refreshes_last_24h"
+
 # Include common configuration
 packages:
   common: !include homink-common.yaml

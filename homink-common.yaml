@@ -1,8 +1,10 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # HOMINK COMMON CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════════
-# Shared config for all Homink e-ink dashboards. Device-specific files include
-# this via packages and provide: device_name, device_ip, and sensor definitions.
+# Shared config for all Homink e-ink dashboards. Device-specific files provide:
+# - device_name, device_ip
+# - tesla_power_factor (installation-specific)
+# - Sensor definitions (*_var, *_entity for all sensors)
 #
 # Display Sections: Weather (temp, condition, wifi) | Energy (solar, home, EV) |
 #                   Gates (3 gates with lock detection) | Footer (refresh time)
@@ -72,7 +74,7 @@ globals:
   - id: tesla_power_factor  # Installation-specific: apparent → real power
     type: float
     restore_value: no
-    initial_value: '0.789'
+    initial_value: '${tesla_power_factor}'
 
   - id: last_display_refresh_time
     type: long
@@ -298,47 +300,47 @@ font:
 
 binary_sensor:
   - platform: homeassistant
-    entity_id: "binary_sensor.aqara_door_and_window_sensor_p2_door_2"
-    id: _gate1
+    entity_id: ${gate1_entity}
+    id: _${gate1_var}
     on_state:
       then:
-        - lambda: 'SENSOR_UPDATE_CALLBACK(gate1)'
+        - lambda: 'SENSOR_UPDATE_CALLBACK(${gate1_var})'
 
   - platform: homeassistant
-    entity_id: "binary_sensor.aqara_door_and_window_sensor_p2_door_3"
-    id: _gate2
+    entity_id: ${gate2_entity}
+    id: _${gate2_var}
     on_state:
       then:
-        - lambda: 'SENSOR_UPDATE_CALLBACK(gate2)'
+        - lambda: 'SENSOR_UPDATE_CALLBACK(${gate2_var})'
 
   - platform: homeassistant
-    entity_id: "binary_sensor.aqara_door_and_window_sensor_p2_door"
-    id: _gate3
+    entity_id: ${gate3_entity}
+    id: _${gate3_var}
     on_state:
       then:
-        - lambda: 'SENSOR_UPDATE_CALLBACK(gate3)'
+        - lambda: 'SENSOR_UPDATE_CALLBACK(${gate3_var})'
 
 text_sensor:
   - platform: homeassistant
-    entity_id: "lock.shed_lock"
-    id: _lock
+    entity_id: ${lock_entity}
+    id: _${lock_var}
     on_value:
       then:
-        - lambda: 'SENSOR_UPDATE_CALLBACK(lock)'
+        - lambda: 'SENSOR_UPDATE_CALLBACK(${lock_var})'
 
   - platform: homeassistant
-    entity_id: "sensor.openweathermap_condition"
-    id: _weather
+    entity_id: ${weather_entity}
+    id: _${weather_var}
     on_value:
       then:
-        - lambda: 'SENSOR_UPDATE_CALLBACK(weather)'
+        - lambda: 'SENSOR_UPDATE_CALLBACK(${weather_var})'
 
   - platform: homeassistant
-    entity_id: "sensor.tesla_wall_connector_status"
-    id: _charger
+    entity_id: ${charger_entity}
+    id: _${charger_var}
     on_value:
       then:
-        - lambda: 'SENSOR_UPDATE_CALLBACK(charger)'
+        - lambda: 'SENSOR_UPDATE_CALLBACK(${charger_var})'
 
 sensor:
   - platform: template
@@ -356,7 +358,7 @@ sensor:
     lambda: 'return id(recorded_display_refresh);'
 
   - platform: homeassistant
-    entity_id: sensor.e_ink_refreshes_last_24h
+    entity_id: ${refreshes_24h_entity}
     id: refreshes_last_24h_ha
     internal: false
     name: "${device_name} - Refreshes Last 24h"
@@ -367,53 +369,53 @@ sensor:
 
   - platform: wifi_signal
     name: "${device_name} - WiFi Signal Strength"
-    id: _wifi_rssi
+    id: _${wifi_rssi_var}
     unit_of_measurement: "dBm"
     entity_category: "diagnostic"
     update_interval: 60s
 
   - platform: homeassistant
-    entity_id: "sensor.birgenshire_temp"
-    id: _temperature
+    entity_id: ${temperature_entity}
+    id: _${temperature_var}
     on_value:
       then:
-        - lambda: 'SENSOR_UPDATE_CALLBACK(temperature)'
+        - lambda: 'SENSOR_UPDATE_CALLBACK(${temperature_var})'
 
   - platform: homeassistant
-    entity_id: "sensor.birgenshire_solar_power"
-    id: _solar_power
+    entity_id: ${solar_power_entity}
+    id: _${solar_power_var}
     on_value:
       then:
-        - lambda: 'SENSOR_UPDATE_CALLBACK(solar_power)'
+        - lambda: 'SENSOR_UPDATE_CALLBACK(${solar_power_var})'
 
   - platform: homeassistant
-    entity_id: "sensor.tesla_wall_connector_current_power"
-    id: _charging_power
+    entity_id: ${charging_power_entity}
+    id: _${charging_power_var}
     on_value:
       then:
-        - lambda: 'SENSOR_UPDATE_CALLBACK(charging_power)'
+        - lambda: 'SENSOR_UPDATE_CALLBACK(${charging_power_var})'
 
   - platform: homeassistant
-    entity_id: "sun.sun"
+    entity_id: ${sun_elev_entity}
     attribute: elevation
-    id: _sun_elev
+    id: _${sun_elev_var}
     on_value:
       then:
-        - lambda: 'SENSOR_UPDATE_CALLBACK(sun_elev)'
+        - lambda: 'SENSOR_UPDATE_CALLBACK(${sun_elev_var})'
 
   - platform: homeassistant
-    entity_id: "sensor.solar_production_last_24h_2"
-    id: _solar_energy
+    entity_id: ${solar_energy_entity}
+    id: _${solar_energy_var}
     on_value:
       then:
-        - lambda: 'SENSOR_UPDATE_CALLBACK(solar_energy)'
+        - lambda: 'SENSOR_UPDATE_CALLBACK(${solar_energy_var})'
 
   - platform: homeassistant
-    entity_id: "sensor.home_consumption_last_24h_2"
-    id: _home_consumption
+    entity_id: ${home_consumption_entity}
+    id: _${home_consumption_var}
     on_value:
       then:
-        - lambda: 'SENSOR_UPDATE_CALLBACK(home_consumption)'
+        - lambda: 'SENSOR_UPDATE_CALLBACK(${home_consumption_var})'
 
 color:
   - id: color_bg
