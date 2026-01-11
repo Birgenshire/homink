@@ -1,5 +1,5 @@
 # HOMINK-ENTRANCE - Device-specific configuration
-# Shared config in homink-common.yaml (included via packages)
+# Shared config in homink-common.inc (included via packages)
 
 # Device-specific substitutions
 substitutions:
@@ -54,7 +54,7 @@ substitutions:
 
 # Include common configuration
 packages:
-  common: !include homink-common.yaml
+  common: !include homink-common.inc
 
 # Device-specific ESPHome configuration
 esphome:
