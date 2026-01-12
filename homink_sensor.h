@@ -21,6 +21,7 @@ public:
   virtual const char *name() const = 0;
   virtual const char *entity_id() const = 0;
   virtual void log_change(const char *reason) const = 0;
+  virtual bool is_initialized() const = 0;
 
   // Static methods - iterate all sensors in unified list
   static void update_all() {
@@ -40,18 +41,43 @@ public:
   }
 
   // Generate comma-separated list of HA entity_ids (excludes ESPHome built-ins)
+  // Cached after first call since sensor list doesn't change at runtime
   static std::string get_ha_entity_list() {
-    std::string list;
-    for (ISensor *sensor = _list_head; sensor; sensor = sensor->_next) {
-      const char *entity = sensor->entity_id();
-      if (std::strchr(entity, '.') != nullptr) {  // Has '.' = HA entity
-        if (!list.empty()) {
-          list += ",";
+    static std::string cached_list;
+    if (cached_list.empty()) {
+      for (ISensor *sensor = _list_head; sensor; sensor = sensor->_next) {
+        const char *entity = sensor->entity_id();
+        if (std::strchr(entity, '.') != nullptr) {  // Has '.' = HA entity
+          if (!cached_list.empty()) {
+            cached_list += ",";
+          }
+          cached_list += entity;
         }
-        list += entity;
+      }
+      ESP_LOGD("sensor", "Cached HA entity list: %s", cached_list.c_str());
+    }
+    return cached_list;
+  }
+
+  // Validate all sensors are properly initialized (call after SENSOR_INIT_ALL)
+  // Returns true if all sensors are valid, false if any are missing
+  static bool validate_all() {
+    bool all_valid = true;
+    int count = 0;
+    for (ISensor *sensor = _list_head; sensor; sensor = sensor->_next) {
+      count++;
+      if (!sensor->is_initialized()) {
+        ESP_LOGE("sensor", "SENSOR NOT INITIALIZED: %s (%s) - check YAML id matches C++ variable",
+                 sensor->name(), sensor->entity_id());
+        all_valid = false;
       }
     }
-    return list;
+    if (all_valid) {
+      ESP_LOGI("sensor", "All %d sensors initialized successfully", count);
+    } else {
+      ESP_LOGE("sensor", "Sensor initialization failed - display may not update correctly");
+    }
+    return all_valid;
   }
 
 protected:
@@ -89,6 +115,7 @@ public:
 
   bool has_state() const { return _has_state; }
   const ValueType& value() const { return _value; }
+  bool is_initialized() const override { return _sensor != nullptr; }
 
   void set_sensor(SensorType *s) { _sensor = s; }
 
@@ -240,23 +267,25 @@ private:
 // ============================================================================
 
 // Unified callback - checks availability and value changes, triggers immediate update if allowed
+// Uses do-while(0) pattern for safe macro expansion (works correctly with if/else, no dangling statements)
 #define SENSOR_UPDATE_CALLBACK(sensor_var) \
-  id(last_ha_connection_time) = id(homeassistant_time).now().timestamp; \
-  if (!id(ha_connected)) { \
-    ESP_LOGD("main", "Received sensor data - marking HA as connected"); \
-    id(ha_connected) = true; \
-  } \
-  if (id(data_updated)) return; \
-  if (sensor_var.should_trigger_update()) { \
-    id(data_updated) = true; \
-    long time_since_refresh = id(homeassistant_time).now().timestamp - id(last_display_refresh_time); \
-    if (time_since_refresh >= id(threshold_min_update_interval) || id(last_display_refresh_time) == 0) { \
-      ESP_LOGD("main", "%s: Immediate update (%lds since last refresh)", sensor_var.name(), time_since_refresh); \
-      id(update_screen).execute(); \
-    } else { \
-      ESP_LOGD("main", "%s: Deferred update (%lds < %ds min interval)", sensor_var.name(), time_since_refresh, id(threshold_min_update_interval)); \
+  do { \
+    id(last_ha_connection_time) = id(homeassistant_time).now().timestamp; \
+    if (!id(ha_connected)) { \
+      ESP_LOGD("main", "Received sensor data - marking HA as connected"); \
+      id(ha_connected) = true; \
     } \
-  }
+    if (!id(data_updated) && sensor_var.should_trigger_update()) { \
+      id(data_updated) = true; \
+      long time_since_refresh = id(homeassistant_time).now().timestamp - id(last_display_refresh_time); \
+      if (time_since_refresh >= id(threshold_min_update_interval) || id(last_display_refresh_time) == 0) { \
+        ESP_LOGD("main", "%s: Immediate update (%lds since last refresh)", sensor_var.name(), time_since_refresh); \
+        id(update_screen).execute(); \
+      } else { \
+        ESP_LOGD("main", "%s: Deferred update (%lds < %ds min interval)", sensor_var.name(), time_since_refresh, id(threshold_min_update_interval)); \
+      } \
+    } \
+  } while(0)
 
 // ============================================================================
 // X-MACRO SYSTEM

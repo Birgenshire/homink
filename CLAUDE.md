@@ -369,6 +369,27 @@ Using `sun.sun` elevation attribute instead of time-based logic:
 - Golden hour detection (-6° to +6°) for sunset icons
 - Fallback to 8PM-6AM if sun sensor unavailable
 
+## Known Technical Debt & Future Ideas
+
+### Entity ID Duplication (Deferred)
+
+Currently, Home Assistant entity IDs are defined in TWO places that must stay in sync:
+1. Device `.h` files (C++ `SENSOR_*` macros) - used for `get_ha_entity_list()`
+2. Device YAML substitutions (`*_entity`) - used for ESPHome sensor `entity_id:`
+
+**Potential solution explored:** Build the entity list entirely from YAML substitutions:
+- Add `all_ha_entities` substitution combining all entity IDs
+- Use `${all_ha_entities}` directly in `homeassistant.update_entity` calls
+- Remove entity parameter from C++ `SENSOR_*` macros entirely
+- C++ sensors only need display name and threshold (linked via `set_sensor()`)
+
+**Why deferred:** Want to explore more dynamic solutions. The YAML-only approach works but requires manually maintaining the `all_ha_entities` list. Ideally, the system would be fully dynamic without any manual list maintenance.
+
+**Constraints discovered:**
+- YAML runs before C++ compilation, so YAML can't read from C++
+- ESPHome doesn't support Jinja2 in all contexts
+- Python preprocessing would work but adds build complexity
+
 ## Current State & Future Plans
 
 - Both `homink-entrance` and `homink-slider` display identical data from the same Home Assistant sensors
