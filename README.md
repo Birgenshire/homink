@@ -68,10 +68,10 @@ Based on [esphome-weatherman-dashboard](https://github.com/Madelena/esphome-weat
   - BUSY: GPIO25 (inverted)
 
 **Deployed devices:**
-- `homink-entrance` (192.168.85.151)
-- `homink-slider` (192.168.85.185)
+- `homink-entrance` - Main entrance display
+- `homink-slider` - Secondary display
 
-Currently both devices display identical information.
+Currently both devices display identical information. Device IPs are configured in device-specific YAML files.
 
 ## Build & Deploy
 
@@ -110,15 +110,15 @@ After initial USB flash, devices support Over-The-Air updates via WiFi.
 
 ### File Organization
 
-**Shared configuration (97% of config):**
-- `homink-common.yaml` - All sensors, display rendering, update logic, scripts
+**Shared configuration (~95% of config):**
+- `homink-common.inc` - All sensors, display rendering, update logic, scripts (uses `.inc` extension to hide from ESPHome UI)
 - `homink_sensor.h` - C++ sensor infrastructure (templates, base classes, macros)
 
-**Device-specific (26 lines each):**
+**Device-specific:**
 - `homink-entrance.yaml` / `homink-entrance.h`
 - `homink-slider.yaml` / `homink-slider.h`
 
-Device files only contain: device name, IP address, and C++ includes.
+Device YAML files contain substitutions for device name, IP, and sensor entity IDs. Device `.h` files contain C++ sensor definitions.
 
 ### Sensor System
 
@@ -143,16 +143,18 @@ Three steps to add a new sensor:
    ```
    Then add to `SENSOR_INIT_ALL()` macro.
 
-2. **Add YAML sensor** in `homink-common.yaml`:
+2. **Add substitutions** to device YAML files for the entity ID
+
+3. **Add YAML sensor** in `homink-common.inc`:
    ```yaml
    - platform: homeassistant
-     entity_id: "sensor.entity_id"
-     id: _new_sensor  # ESPHome adds _ prefix
+     entity_id: ${new_sensor_entity}
+     id: _${new_sensor_var}
      on_value:
-       - lambda: 'SENSOR_UPDATE_CALLBACK(new_sensor)'
+       - lambda: 'SENSOR_UPDATE_CALLBACK(${new_sensor_var})'
    ```
 
-3. **Add rendering** to display lambda in `homink-common.yaml`
+4. **Add rendering** to display lambda in `homink-common.inc`
 
 **Available sensor macros:**
 - `SENSOR_BINARY(var, name, entity)` - Binary sensors
@@ -182,26 +184,24 @@ Three steps to add a new sensor:
 
 ## Home Assistant Integration
 
-Requires the following Home Assistant entities:
+Requires the following types of Home Assistant entities (actual entity IDs configured in device YAML files):
 
 **Weather:**
-- `sensor.openweathermap_condition`
-- `sensor.birgenshire_temp`
+- Weather condition sensor (text, e.g., OpenWeatherMap)
+- Temperature sensor (°F)
 
 **Solar:**
-- `sensor.birgenshire_solar_power`
-- `sensor.solar_production_last_24h_2`
-- `sensor.home_consumption_last_24h_2`
+- Current solar power output (kW)
+- Solar production last 24 hours (kWh)
+- Home consumption last 24 hours (kWh)
 
 **EV Charging:**
-- `sensor.tesla_wall_connector_status`
-- `sensor.tesla_wall_connector_current_power`
+- Charger status sensor (text)
+- Charging power sensor (W)
 
 **Gates & Security:**
-- `binary_sensor.aqara_door_and_window_sensor_p2_door` (Side gate)
-- `binary_sensor.aqara_door_and_window_sensor_p2_door_2` (Sidewalk gate)
-- `binary_sensor.aqara_door_and_window_sensor_p2_door_3` (Driveway gate)
-- `lock.shed_lock`
+- Binary sensors for each gate (open/closed)
+- Lock entity (for gate with lock detection)
 
 **Other:**
 - `sun.sun` (elevation attribute for day/night detection)
