@@ -439,6 +439,23 @@ display:
     update_interval: never
     rotation: 90°
     lambda: |-
+      // =========================================================================
+      // DISPLAY PHYSICAL CONSTRAINTS - DO NOT RENDER OUTSIDE VISIBLE AREA
+      // =========================================================================
+      // Display is mounted behind a mat/frame that obscures edges.
+      // Physical spec: 0.205mm dot pitch = 123.9 DPI
+      //
+      // VISIBLE AREA (portrait orientation after 90° rotation):
+      //   Top boundary:    Y = 60   (content above this is hidden by mat)
+      //   Bottom boundary: Y = 741  (content below this is hidden by mat)
+      //   Visible height:  681 pixels (741 - 60)
+      //   Full width:      480 pixels (no horizontal cropping)
+      //
+      // Uncomment these lines to see the mat boundaries during development:
+      // it.line(0, 60, 480, 60, color_text);    // Top boundary
+      // it.line(0, 741, 480, 741, color_text);  // Bottom boundary
+      // =========================================================================
+
       // Helper: Check if nighttime (sun elevation < -6° or 8PM-6AM fallback)
       auto is_nighttime = []() -> bool {
         if (sun_elev.has_state()) return sun_elev.value() < -6.0;

@@ -127,32 +127,71 @@ The `update_screen` script:
 | Model | Waveshare 7.5" e-Paper V2 (7.50inv2) |
 | Resolution | 800 x 480 pixels |
 | Orientation | Portrait (rotated 90°) - effective 480 x 800 |
+| Dot pitch | 0.205mm (123.9 DPI) |
 | Colors | Black and White only (1-bit) |
 | Refresh time | ~4 seconds (full refresh, blocking) |
 | Partial refresh | Not supported on this model |
 
+### CRITICAL: Visible Area Constraints (Framed Display)
+
+**The display is mounted behind a mat/frame that obscures the edges. Content rendered outside the visible area will be hidden!**
+
+| Boundary | Pixel Value | Notes |
+|----------|-------------|-------|
+| **Top (Y min)** | 60 | Content above Y=60 is hidden by mat |
+| **Bottom (Y max)** | 741 | Content below Y=741 is hidden by mat |
+| **Visible height** | 681 px | (741 - 60 = 681 pixels) |
+| **Left (X min)** | 0 | Full width visible |
+| **Right (X max)** | 480 | Full width visible |
+| **Visible width** | 480 px | No horizontal cropping |
+
+```
+Physical display (480 x 800 after rotation):
+
+     Y=0   ┌─────────────────────────────────────────┐
+           │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│ ← HIDDEN BY MAT
+    Y=60   ├─────────────────────────────────────────┤ ← TOP OF VISIBLE AREA
+           │                                         │
+           │            VISIBLE AREA                 │
+           │         (681 x 480 pixels)              │
+           │                                         │
+           │    All UI content must stay within      │
+           │         Y=60 to Y=741                   │
+           │                                         │
+   Y=741   ├─────────────────────────────────────────┤ ← BOTTOM OF VISIBLE AREA
+           │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│ ← HIDDEN BY MAT
+   Y=800   └─────────────────────────────────────────┘
+          X=0                                      X=480
+```
+
+**Development tip:** Uncomment the boundary lines in `homink-common.inc` display lambda to visualize the mat edges:
+```cpp
+// it.line(0, 60, 480, 60, color_text);    // Top boundary
+// it.line(0, 741, 480, 741, color_text);  // Bottom boundary
+```
+
 ### Current Layout (Y coordinates, portrait orientation)
 
 ```
-┌─────────────────────────────────────────┐ Y=0
+┌─────────────────────────────────────────┐ Y=60 (visible top)
 │            WEATHER (title @ 85)         │
 │  [Weather Icon]      [Temperature]      │ Y=140
 │  (x=100)             (x=300)            │
 │         WiFi indicator (448, 70)        │
-├─────────────────────────────────────────┤ Y=250 (line)
+├─────────────────────────────────────────┤ Y=250 (divider line)
 │            ENERGY (title @ 268)         │
 │  Solar Output ........................  │ Y=339
 │  Solar 24hr .........................   │ Y=382
 │  Home 24hr ..........................   │ Y=425
 │  Charging ...........................   │ Y=468
-├─────────────────────────────────────────┤ Y=503 (line)
+├─────────────────────────────────────────┤ Y=503 (divider line)
 │            GATES (title @ 521)          │
 │  Gate 1 (Sidewalk) ..................   │ Y=592
 │  Gate 2 (Driveway) ..................   │ Y=640
 │  Gate 3 (Side) ......................   │ Y=688
 ├─────────────────────────────────────────┤
 │  Footer: "Refreshed [timestamp]"        │ Y=721
-└─────────────────────────────────────────┘ Y=800
+└─────────────────────────────────────────┘ Y=741 (visible bottom)
 ```
 
 ### Layout Constants (from display lambda)
