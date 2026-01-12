@@ -14,6 +14,45 @@ Homink is an ESPHome-based e-ink dashboard for Home Assistant, displaying solar 
 
 Based on [esphome-weatherman-dashboard](https://github.com/Madelena/esphome-weatherman-dashboard).
 
+## Software Engineering Principles
+
+This codebase prioritizes **maintainability, modularity, and zero duplication** through rigorous software engineering practices:
+
+### 1. DRY Principle (Don't Repeat Yourself)
+- **95% shared configuration** - `homink-common.inc` contains all display logic, update mechanisms, and sensor definitions
+- **Device files are minimal** - Only ~68 lines per device with substitutions and includes
+- **X-macro pattern** - Sensor definitions written once, automatically expanded for declarations, initialization, and registration
+- **Generic sensor infrastructure** - Reusable templates in `homink_sensor.h` work for any sensor type
+
+### 2. Single Source of Truth
+- **Packages pattern** - Device YAML files include common config, override only what differs
+- **Substitutions** - Device-specific values (IPs, entity IDs) defined once in YAML, used throughout
+- **One display lambda** - All rendering logic in `homink-common.inc`, no per-device duplication
+
+### 3. Modularity & Separation of Concerns
+- **Generic infrastructure** (`homink_sensor.h`) - Reusable sensor base classes and templates
+- **Project-specific definitions** (device `.h` files) - Sensor instances using generic infrastructure
+- **Display rendering** (`.inc` lambda) - Pure presentation logic, no business logic
+- **Update mechanism** (`.inc` scripts) - Centralized polling and refresh logic
+
+### 4. Type Safety & Compile-Time Validation
+- **C++ templates** - Type-safe sensor handling with compile-time errors for mismatches
+- **Strongly-typed sensor classes** - `BinaryStateSensor`, `FloatThresholdSensor`, etc.
+- **ESPHome validation** - YAML syntax and entity references validated at compile time
+
+### 5. Maintainability Over Cleverness
+- **Clear naming** - Self-documenting variable and function names
+- **Comprehensive comments** - Design rationale preserved in code and CLAUDE.md
+- **Consistent patterns** - Same approach for all sensors, no special cases
+- **No magic numbers** - All thresholds and constants defined as named globals
+
+### 6. Extensibility
+- **Adding sensors is systematic** - 4 clear steps (C++ definition → YAML substitutions → YAML sensor → rendering)
+- **New sensor types** - Easy to add by subclassing `BaseSensor<>` template
+- **Per-device customization ready** - Substitution pattern allows devices to have different sensors
+
+**When modifying this codebase:** Maintain these principles. If you find yourself copying code, consider creating a reusable abstraction. If you're adding device-specific logic, ask if it belongs in substitutions instead.
+
 ## Build & Deploy
 
 This is an ESPHome project. Use standard ESPHome commands:
