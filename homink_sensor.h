@@ -239,7 +239,7 @@ private:
 // MACROS
 // ============================================================================
 
-// Unified callback - checks availability and value changes
+// Unified callback - checks availability and value changes, triggers immediate update if allowed
 #define SENSOR_UPDATE_CALLBACK(sensor_var) \
   id(last_ha_connection_time) = id(homeassistant_time).now().timestamp; \
   if (!id(ha_connected)) { \
@@ -248,8 +248,14 @@ private:
   } \
   if (id(data_updated)) return; \
   if (sensor_var.should_trigger_update()) { \
-    ESP_LOGD("main", "%s: Value changed - triggering update", sensor_var.name()); \
     id(data_updated) = true; \
+    long time_since_refresh = id(homeassistant_time).now().timestamp - id(last_display_refresh_time); \
+    if (time_since_refresh >= id(threshold_min_update_interval) || id(last_display_refresh_time) == 0) { \
+      ESP_LOGD("main", "%s: Immediate update (%lds since last refresh)", sensor_var.name(), time_since_refresh); \
+      id(update_screen).execute(); \
+    } else { \
+      ESP_LOGD("main", "%s: Deferred update (%lds < %ds min interval)", sensor_var.name(), time_since_refresh, id(threshold_min_update_interval)); \
+    } \
   }
 
 // ============================================================================

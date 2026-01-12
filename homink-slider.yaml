@@ -12,6 +12,9 @@ substitutions:
   # HA connection timeout (seconds - marks HA disconnected after no sensor updates)
   ha_timeout_seconds: "60"
 
+  # Minimum interval between display refreshes (seconds)
+  min_update_interval_seconds: "15"
+
   # Sensor definitions - C++ variable names and HA entity IDs
   # Binary sensors (gates)
   gate1_var: "gate1"

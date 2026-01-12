@@ -77,6 +77,11 @@ globals:
     restore_value: no
     initial_value: '${ha_timeout_seconds}'
 
+  - id: threshold_min_update_interval  # Minimum seconds between display refreshes
+    type: int
+    restore_value: no
+    initial_value: '${min_update_interval_seconds}'
+
   - id: ha_connected
     type: bool
     restore_value: no
@@ -111,12 +116,13 @@ script:
       - component.update: eink_display  # Blocks ~4s
       - lambda: 'id(recorded_display_refresh) += 1;'
 
-# 15-second polling: Push (instant callbacks) + Poll (missed update backup)
+# Polling loop: Runs every min_update_interval_seconds as backup for missed callbacks
+# Also handles forced refresh (30 min) and HA timeout detection
 time:
   - platform: homeassistant
     id: homeassistant_time
     on_time:
-      - seconds: /15
+      - seconds: /${min_update_interval_seconds}
         then:
           - if:
               condition:
